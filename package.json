@@ -1,0 +1,32 @@
+{
+  "name": "elstand-intelligence",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Elstand Intelligence: forex and macro intelligence terminal (Phase 1 foundation)",
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev": "node --import ./scripts/register-ts.mjs scripts/dev.ts",
+    "build": "node --import ./scripts/register-ts.mjs scripts/build.ts",
+    "preview": "node --import ./scripts/register-ts.mjs scripts/preview.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "lint:policy": "node --import ./scripts/register-ts.mjs scripts/lint-policy.ts",
+    "docs:gen": "node --import ./scripts/register-ts.mjs scripts/gen-docs.ts",
+    "docs:check": "node --import ./scripts/register-ts.mjs scripts/gen-docs.ts --check",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node --import ./scripts/register-ts.mjs --test --test-reporter=spec \"tests/unit/**/*.test.ts\"",
+    "test:e2e": "npm run build && node --import ./scripts/register-ts.mjs --test --test-concurrency=1 --test-reporter=spec \"tests/e2e/**/*.test.ts\"",
+    "check": "npm run typecheck && npm run lint:policy && npm run docs:check && npm run format:check && npm test && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "esbuild": "^0.28.2",
+    "playwright": "^1.56.0",
+    "prettier": "^3.8.1",
+    "typescript": "^6.0.3"
+  }
+}

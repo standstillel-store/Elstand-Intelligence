@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+.dev/
+coverage/
+test-results/
+
+# environment files (only .env.example is tracked)
+.env
+.env.*
+!.env.example
+
+# tooling and OS noise
+.vercel/
+.idea/
+.DS_Store
+*.log

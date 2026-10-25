@@ -1,0 +1,245 @@
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+}
+
+/* ---- header ---------------------------------------------------------------------------- */
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  column-gap: var(--space-4);
+  min-height: var(--header-h);
+  padding: 0 var(--space-3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--header-h);
+  padding-right: var(--space-2);
+}
+
+.brand__mark {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.brand__bar-a {
+  fill: var(--neon);
+}
+
+.brand__bar-b {
+  fill: var(--green-muted);
+}
+
+.brand__word {
+  font-weight: 650;
+  font-size: var(--fs-body);
+  letter-spacing: 0.16em;
+}
+
+.brand__sub {
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  letter-spacing: 0.16em;
+}
+
+.nav {
+  display: flex;
+  align-items: stretch;
+}
+
+.nav__link {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-4);
+  color: var(--text-2);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+
+.nav__link:hover {
+  color: var(--text);
+}
+
+.nav__link[aria-current='page'] {
+  color: var(--neon);
+  border-bottom-color: var(--neon);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  padding: 6px 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: 0 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+a.chip:hover,
+button.chip:hover {
+  border-color: var(--green-muted);
+}
+
+.chip__label {
+  color: var(--text-2);
+}
+
+.chip__value[data-tone='selected'] {
+  color: var(--neon);
+}
+
+.chip__value[data-tone='caution'] {
+  color: var(--caution);
+}
+
+.chip__value[data-tone='down'] {
+  color: var(--down);
+}
+
+/* ---- main ------------------------------------------------------------------------------ */
+
+.main {
+  min-width: 0;
+  padding: var(--space-3);
+}
+
+.forex {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    'chart'
+    'watch'
+    'depth'
+    'elvoid';
+}
+
+.forex__chart {
+  grid-area: chart;
+  min-width: 0;
+}
+
+.forex__watch {
+  grid-area: watch;
+  min-width: 0;
+}
+
+.forex__depth {
+  grid-area: depth;
+  min-width: 0;
+}
+
+.forex__elvoid {
+  grid-area: elvoid;
+  min-width: 0;
+}
+
+@media (min-width: 1100px) {
+  .forex {
+    grid-template-columns: minmax(0, 1fr) var(--watchlist-w);
+    grid-template-areas:
+      'chart watch'
+      'depth watch'
+      'elvoid watch';
+    align-items: start;
+  }
+
+  .forex__watch {
+    position: sticky;
+    top: var(--space-3);
+    max-height: calc(100vh - var(--header-h) - 2 * var(--space-3) - 36px);
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+@media (min-width: 1500px) {
+  .forex {
+    grid-template-columns: minmax(0, 1fr) var(--depth-w) var(--watchlist-w);
+    grid-template-areas:
+      'chart depth watch'
+      'elvoid elvoid watch';
+  }
+}
+
+.macro {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 1500px;
+  margin: 0 auto;
+}
+
+/* ---- footer ---------------------------------------------------------------------------- */
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: var(--fs-label);
+}
+
+.footer__clock {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- narrow screens -------------------------------------------------------------------- */
+
+@media (max-width: 700px) {
+  .header {
+    padding: 0 var(--space-2);
+  }
+
+  .brand__sub {
+    display: none;
+  }
+
+  .nav {
+    flex: 1;
+  }
+
+  .nav__link {
+    flex: 1;
+    justify-content: center;
+    padding: 0 var(--space-2);
+  }
+
+  .chips {
+    flex-basis: 100%;
+    margin-left: 0;
+    padding-top: 0;
+  }
+
+  .main {
+    padding: var(--space-2);
+  }
+}

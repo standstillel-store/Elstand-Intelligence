@@ -1,0 +1,152 @@
+.chart__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-3) var(--space-3) var(--space-2);
+}
+
+.chart__id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chart__symbol {
+  font-size: var(--fs-title);
+  font-weight: 650;
+  letter-spacing: 0.03em;
+}
+
+.chart__name {
+  color: var(--text-2);
+  font-size: var(--fs-label);
+}
+
+.chart__quote {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.chart__price {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-price);
+  font-weight: 600;
+}
+
+.chart__price[data-state='stale'],
+.chart__price[data-state='unavailable'] {
+  color: var(--text-2);
+}
+
+.chart__change {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-small);
+}
+
+.chart__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.chart__readout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--space-3);
+  min-height: 20px;
+  padding: 0 var(--space-3) var(--space-2);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+.chart__readout b {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.chart__readout[data-empty='true'] > * {
+  visibility: hidden;
+}
+
+.chart__note {
+  color: var(--caution);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+}
+
+.chart__status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chart__stage {
+  position: relative;
+  height: clamp(300px, 46vh, 520px);
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.chart__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Vertical swipes still scroll the page; sideways drags and pinches belong to the chart. */
+  touch-action: pan-y;
+  cursor: crosshair;
+}
+
+.chart__canvas:focus-visible {
+  outline-offset: -2px;
+}
+
+.chart__canvas[data-dragging='true'] {
+  cursor: grabbing;
+}
+
+.chart__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: var(--bg);
+  overflow: auto;
+}
+
+.chart__overlay > * {
+  width: 100%;
+  max-width: 720px;
+}
+
+.chart__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+}
+
+.chart__help {
+  margin-left: auto;
+  font-family: var(--font-sans);
+}
+
+.chart__notices {
+  display: grid;
+  gap: 1px;
+}

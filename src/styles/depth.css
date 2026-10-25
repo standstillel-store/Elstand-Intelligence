@@ -1,0 +1,124 @@
+/* ---- market depth ---------------------------------------------------------------------- */
+
+.depth__content {
+  display: grid;
+  gap: var(--space-3);
+  /* The panel is narrow beside the chart and wide below it, so the layout follows its own width. */
+  container-type: inline-size;
+}
+
+.depth__scope {
+  font-size: var(--fs-small);
+}
+
+.depth__scope strong {
+  font-weight: 650;
+}
+
+.depth__facts {
+  font-size: var(--fs-small);
+}
+
+.depth__sides {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.depth__side-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.depth__best {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.depth__row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2);
+  padding: 3px var(--space-2);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-small);
+}
+
+.depth__row--head {
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+}
+
+.depth__cell {
+  position: relative;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.depth__price {
+  text-align: left;
+}
+
+/* Cumulative size, anchored at the spread: bids grow leftwards, asks grow rightwards. */
+.depth__bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--depth, 0%);
+  background: var(--surface-2);
+}
+
+.depth__side[data-side='bid'] .depth__bar {
+  right: 0;
+  border-left: 2px solid var(--green-muted);
+}
+
+.depth__side[data-side='ask'] .depth__bar {
+  left: 0;
+  border-right: 2px solid var(--down);
+}
+
+/* A book that is not current is drawn neutral, like every other figure that is not current. */
+.depth__book[data-state='stale'] .depth__bar,
+.depth__book[data-state='unavailable'] .depth__bar {
+  border-color: var(--text-2);
+}
+
+.depth__book {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.depth__spread {
+  color: var(--text);
+  font-size: var(--fs-small);
+}
+
+.depth__legend,
+.depth__note {
+  max-width: 68ch;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+}
+
+@container (max-width: 520px) {
+  .depth__sides {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
