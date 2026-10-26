@@ -166,7 +166,7 @@ function parseQuote(input: unknown): Parsed<Quote> {
     changeAbs: input['changeAbs'],
     changePct: input['changePct'],
     asOf: input['asOf'],
-    marketOpen,
+    marketOpen: typeof marketOpen === 'boolean' ? marketOpen : null,
   });
 }
 
@@ -176,7 +176,7 @@ export function parseQuotes(input: unknown): Parsed<WireQuotes> {
   const quotes: Quote[] = [];
   for (const raw of input['quotes'] as unknown[]) {
     const parsed = parseQuote(raw);
-    if (!parsed.ok) return fail(parsed.error);
+    if (parsed.ok === false) return fail(parsed.error);
     quotes.push(parsed.value);
   }
   const failures: Record<string, { code: ApiErrorCode; message: string }> = {};

@@ -12,7 +12,7 @@
     "dev": "node --import ./scripts/register-ts.mjs scripts/dev.ts",
     "build": "node --import ./scripts/register-ts.mjs scripts/build.ts",
     "preview": "node --import ./scripts/register-ts.mjs scripts/preview.ts",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json && tsc -p tsconfig.vercel.json",
     "lint:policy": "node --import ./scripts/register-ts.mjs scripts/lint-policy.ts",
     "docs:gen": "node --import ./scripts/register-ts.mjs scripts/gen-docs.ts",
     "docs:check": "node --import ./scripts/register-ts.mjs scripts/gen-docs.ts --check",

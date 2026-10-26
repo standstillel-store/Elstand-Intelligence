@@ -58,7 +58,7 @@ and the build fails if a secret value reaches the browser bundle.
 | `npm run dev`          | Development server: rebuilds on change, serves the app and the API. Reads `.env` and `.env.local`.                                                                    |
 | `npm run build`        | Production build into `dist/`, then the build guards (below).                                                                                                         |
 | `npm run preview`      | Serves `dist/` and the API with your real environment.                                                                                                                |
-| `npm run typecheck`    | `tsc` in strict mode for the browser code and for the server, scripts and tests.                                                                                      |
+| `npm run typecheck`    | `tsc` in strict mode for the browser code and for the server, scripts and tests, plus the Vercel builder's own non-strict view of `api/` (`tsconfig.vercel.json`).    |
 | `npm run lint:policy`  | The project policy checks: no fabricated data, no secrets or network calls in the browser, no markup built from strings, no suppressed type errors, one-way layering. |
 | `npm run docs:check`   | Fails if a generated document is out of date. `npm run docs:gen` rewrites it.                                                                                         |
 | `npm run format:check` | Prettier check. `npm run format` applies it.                                                                                                                          |

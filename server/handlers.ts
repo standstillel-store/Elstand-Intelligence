@@ -90,22 +90,26 @@ export function handleStatus(request: Request, deps: HandlerDeps): Promise<Respo
   const blocked = notGet(request);
   if (blocked !== null) return Promise.resolve(blocked);
   const reading = readServerConfig(deps.env);
-  const body: WireStatus = reading.connected
-    ? {
-        connected: true,
-        source: {
-          id: TWELVE_DATA_SOURCE_ID,
-          label: TWELVE_DATA_LABEL,
-          mode: reading.config.mode,
-          staleAfterMs: reading.config.staleAfterMs,
-        },
-        depth: { available: false, reason: DEPTH_UNAVAILABLE_REASON },
-        pollSeconds: {
-          quotes: reading.config.refreshSeconds,
-          candles: reading.config.refreshSeconds,
-        },
-      }
-    : { connected: false, missing: reading.missing };
+  // `in` rather than the boolean flag: the Vercel builder type-checks without strictNullChecks,
+  // where a boolean discriminant does not narrow (see tsconfig.vercel.json).
+  if ('missing' in reading) {
+    const notConnected: WireStatus = { connected: false, missing: reading.missing };
+    return Promise.resolve(json(notConnected, 200, NO_STORE));
+  }
+  const body: WireStatus = {
+    connected: true,
+    source: {
+      id: TWELVE_DATA_SOURCE_ID,
+      label: TWELVE_DATA_LABEL,
+      mode: reading.config.mode,
+      staleAfterMs: reading.config.staleAfterMs,
+    },
+    depth: { available: false, reason: DEPTH_UNAVAILABLE_REASON },
+    pollSeconds: {
+      quotes: reading.config.refreshSeconds,
+      candles: reading.config.refreshSeconds,
+    },
+  };
   return Promise.resolve(json(body, 200, NO_STORE));
 }
 
@@ -126,8 +130,8 @@ function parseInstrumentList(raw: string | null): Instrument[] {
 }
 
 type QuoteOutcome =
-  | { readonly ok: true; readonly instrument: Instrument; readonly quote: Quote }
-  | { readonly ok: false; readonly instrument: Instrument; readonly failure: ApiFailure };
+  | { readonly kind: 'quote'; readonly instrument: Instrument; readonly quote: Quote }
+  | { readonly kind: 'failure'; readonly instrument: Instrument; readonly failure: ApiFailure };
 
 export async function handleQuotes(request: Request, deps: HandlerDeps): Promise<Response> {
   const blocked = notGet(request);
@@ -158,9 +162,9 @@ export async function handleQuotes(request: Request, deps: HandlerDeps): Promise
               return fetched;
             },
           );
-          return { ok: true, instrument, quote };
+          return { kind: 'quote', instrument, quote };
         } catch (error) {
-          return { ok: false, instrument, failure: toApiFailure(error) };
+          return { kind: 'failure', instrument, failure: toApiFailure(error) };
         }
       }),
     );
@@ -168,7 +172,7 @@ export async function handleQuotes(request: Request, deps: HandlerDeps): Promise
     const quotes: Quote[] = [];
     const failures: Record<string, { code: ApiErrorCode; message: string }> = {};
     for (const outcome of outcomes) {
-      if (outcome.ok) quotes.push(outcome.quote);
+      if (outcome.kind === 'quote') quotes.push(outcome.quote);
       else
         failures[outcome.instrument.id] = {
           code: outcome.failure.code,
@@ -179,7 +183,9 @@ export async function handleQuotes(request: Request, deps: HandlerDeps): Promise
     if (quotes.length === 0) {
       // Nothing to show. If every request failed the same way (a rejected key, a rate limit)
       // report that cause as the response, so the browser can react to it.
-      const failed = outcomes.flatMap((outcome) => (outcome.ok ? [] : [outcome.failure]));
+      const failed = outcomes.flatMap((outcome) =>
+        outcome.kind === 'failure' ? [outcome.failure] : [],
+      );
       const first = failed[0];
       if (first === undefined) throw new ApiFailure('provider_error', 'No quotes were returned.');
       throw failed.every((failure) => failure.code === first.code)

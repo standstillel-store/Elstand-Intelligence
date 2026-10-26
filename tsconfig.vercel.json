@@ -1,0 +1,17 @@
+{
+  "//": "Mirrors how the Vercel Node builder type-checks api/*.ts: its own compiler options (not tsconfig.base.json), non-strict, and no automatic @types. It prints these diagnostics in the build log, so they are kept at zero here rather than left as noise that could hide a real one.",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "isolatedModules": true,
+    "strict": false
+  },
+  "include": ["api"]
+}

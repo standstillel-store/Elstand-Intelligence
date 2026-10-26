@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { handleStatus } from '../server/handlers.js';
 
 /** Vercel function entry. All logic lives in `server/handlers.ts`. */
