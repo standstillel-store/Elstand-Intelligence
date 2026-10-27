@@ -1,5 +1,12 @@
 import type { ApiErrorCode } from '../src/data/wire.js';
 
+export interface FailureOptions {
+  /** True when asking again a moment later can reasonably succeed (a 5xx, a timeout). */
+  readonly retryable?: boolean;
+  /** Which budget ran out, when the failure is a rate limit. */
+  readonly budget?: 'minute' | 'day';
+}
+
 /**
  * A failure the API can describe to the browser. The message is written to be shown to a
  * person and never contains a credential.
@@ -7,12 +14,21 @@ import type { ApiErrorCode } from '../src/data/wire.js';
 export class ApiFailure extends Error {
   readonly code: ApiErrorCode;
   readonly retryAfterSeconds: number | null;
+  readonly retryable: boolean;
+  readonly budget: 'minute' | 'day' | null;
 
-  constructor(code: ApiErrorCode, message: string, retryAfterSeconds: number | null = null) {
+  constructor(
+    code: ApiErrorCode,
+    message: string,
+    retryAfterSeconds: number | null = null,
+    options: FailureOptions = {},
+  ) {
     super(message);
     this.name = 'ApiFailure';
     this.code = code;
     this.retryAfterSeconds = retryAfterSeconds;
+    this.retryable = options.retryable ?? false;
+    this.budget = options.budget ?? null;
   }
 }
 
