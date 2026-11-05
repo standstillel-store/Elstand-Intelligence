@@ -44,6 +44,8 @@ export interface ProviderCall {
 export interface ProviderResponse {
   readonly body: unknown;
   readonly status: number;
+  /** One response header, case-insensitively, or null. Used for quota headers only. */
+  readonly header: (name: string) => string | null;
 }
 
 /** Text from a provider is shown to people: strip control characters and any credential. */
@@ -221,5 +223,5 @@ export async function callProvider(deps: HttpDeps, call: ProviderCall): Promise<
   if (!isJson) {
     throw new ApiFailure('provider_error', `${call.label} did not answer with JSON.`);
   }
-  return { body, status: response.status };
+  return { body, status: response.status, header: (name) => response.headers.get(name) };
 }

@@ -22,10 +22,35 @@ export interface ImpactClassification {
   readonly classifiedBy: string;
 }
 
+/**
+ *  - `exact`: `timeMs` is a scheduled instant that the source states.
+ *  - `date`: the source gives the day only. `timeMs` is 00:00 UTC of that day, a placeholder
+ *    that is never shown as a time, never counted down to and never drawn as an event wave.
+ * An event without the field is `exact` (the contract before time precision existed).
+ */
+export type EventTimePrecision = 'exact' | 'date';
+
+/** What the source says about the event's schedule. Only what it states is ever set. */
+export type EventStatus = 'scheduled' | 'estimated' | 'released' | 'rescheduled' | 'cancelled';
+
+/** A difference Elstand computed from two figures the source supplied (state CALCULATED). */
+export interface EventSurprise {
+  /** actual minus forecast, in the unit of the figures. */
+  readonly value: number;
+  readonly unit: string;
+  readonly basis: string;
+}
+
 export interface CalendarEvent {
   readonly id: string;
   /** Scheduled time in UTC epoch ms. Display converts to a chosen zone; storage never does. */
   readonly timeMs: number;
+  readonly timePrecision?: EventTimePrecision;
+  readonly status?: EventStatus;
+  /** The source's own wording for the release stage (e.g. "preliminary"), shown as written. */
+  readonly stage?: string;
+  /** Present only when the source supplied both an actual and a forecast in the same unit. */
+  readonly surprise?: EventSurprise;
   /** ISO 4217 currency the event is relevant to, e.g. "USD". */
   readonly currency: string;
   readonly country: string | null;
@@ -39,6 +64,17 @@ export interface CalendarEvent {
   readonly elvoidInterpretation: string | null;
 }
 
+/**
+ * The sentiment a news provider attached to an article. It is the provider's number, kept apart
+ * from everything Elstand derives, and it is never an Elstand prediction.
+ */
+export interface ProviderSentiment {
+  /** The provider's score, in the provider's own scale (Marketaux: -1 to 1). */
+  readonly score: number;
+  /** How to read it, in the provider's words, e.g. "Marketaux entity sentiment". */
+  readonly basis: string;
+}
+
 export interface NewsItem {
   readonly id: string;
   readonly publishedAt: number;
@@ -48,6 +84,9 @@ export interface NewsItem {
   readonly url: string | null;
   readonly impact: ImpactClassification | null;
   readonly elvoidInterpretation: string | null;
+  /** The publisher the provider names (a news source, not the data provider), when it says. */
+  readonly publisher?: string;
+  readonly providerSentiment?: ProviderSentiment;
 }
 
 export type FeedResult<T> =

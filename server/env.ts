@@ -24,6 +24,9 @@ export const STALE_AFTER_MS: Readonly<Record<SourceMode, number>> = {
   delayed: 30 * 60_000,
 };
 
+/** The environment, as the handlers receive it. */
+export type Env = Readonly<Record<string, string | undefined>>;
+
 export interface ServerConfig {
   readonly apiKey: string;
   readonly mode: SourceMode;
@@ -41,14 +44,48 @@ export type EnvReading =
  * valid number outside the allowed range is clamped to it.
  */
 function readRefreshSeconds(raw: string | undefined): number {
+  return readBoundedInteger(raw, DEFAULT_REFRESH_SECONDS, MIN_REFRESH_SECONDS, MAX_REFRESH_SECONDS);
+}
+
+/**
+ * A whole number from the environment (seconds, credits), clamped to `min`..`max`. Anything that
+ * is not a plain run of digits (unset, blank, `abc`, `1.5`, `1e2`, `0x10`) gives `fallback`.
+ */
+export function readBoundedInteger(
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   const text = raw?.trim() ?? '';
-  if (!/^\d+$/.test(text)) return DEFAULT_REFRESH_SECONDS;
-  return Math.min(MAX_REFRESH_SECONDS, Math.max(MIN_REFRESH_SECONDS, Number(text)));
+  if (!/^\d+$/.test(text)) return fallback;
+  return Math.min(max, Math.max(min, Number(text)));
+}
+
+/** The refresh cadence on its own, for code that runs without a Twelve Data key. */
+export function readRefreshCadence(env: Readonly<Record<string, string | undefined>>): number {
+  return readRefreshSeconds(env[ENV_REFRESH]);
+}
+
+/**
+ * A credential is one visible token: no space, no control character, no quote (a value pasted
+ * from a `.env` file keeps its quotes) and no angle bracket (an unfilled `<placeholder>`). A value
+ * with one is a paste error, and sending it would only corrupt the header or query string it
+ * travels in and be refused by the provider.
+ */
+const CREDENTIAL = /^[\x21\x23-\x26\x28-\x3b\x3d\x3f-\x7e]{1,200}$/;
+
+export function isCredentialText(text: string): boolean {
+  return CREDENTIAL.test(text);
 }
 
 export function readServerConfig(env: Readonly<Record<string, string | undefined>>): EnvReading {
   const apiKey = env[ENV_API_KEY]?.trim() ?? '';
-  if (apiKey === '') return { connected: false, missing: [ENV_API_KEY] };
+  // A key that is blank, or is not one clean token, cannot be sent: it is reported as not set.
+  // The provider dashboard tells the two cases apart (`readProvider`).
+  if (apiKey === '' || !isCredentialText(apiKey)) {
+    return { connected: false, missing: [ENV_API_KEY] };
+  }
   const mode: SourceMode = env[ENV_REALTIME]?.trim().toLowerCase() === 'true' ? 'live' : 'delayed';
   return {
     connected: true,
