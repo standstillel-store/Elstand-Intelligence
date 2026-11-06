@@ -40,11 +40,18 @@ function liveFeed(deps: ServiceDeps): boolean {
   return 'config' in reading && reading.config.mode === 'live';
 }
 
-/** A fallback is a substitute for an outage, not for a missing or rejected credential. */
+/**
+ * A fallback is a substitute for an outage, not for a missing or rejected credential, and not for
+ * a hold-back this server chose. Twelve Data is in outage when it refused (a rate limit or a
+ * spent quota), could not be reached, sent data that did not validate, or when its DAILY allowance
+ * is used up, which lasts until the next UTC day. A per-minute hold-back by Elstand's own budget
+ * is not an outage: the next minute asks again, and the last verified answer covers the gap.
+ */
 function mayFallBack(outcome: Outcome<unknown>): boolean {
   if (outcome.kind !== 'withheld' || outcome.failure === null) return false;
-  const code = outcome.failure.code;
-  return code === 'rate_limited' || code === 'provider_unreachable' || code === 'provider_error';
+  const { code, local, budget } = outcome.failure;
+  if (code === 'rate_limited') return !local || budget === 'day';
+  return code === 'provider_unreachable' || code === 'provider_error';
 }
 
 /** The Twelve Data quote alone, with no fallback: what a connection check of that provider asks. */
