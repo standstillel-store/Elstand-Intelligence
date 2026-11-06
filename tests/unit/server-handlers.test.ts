@@ -15,13 +15,20 @@ import {
   STALE_AFTER_MS,
   readServerConfig,
 } from '../../server/env.js';
+import { ApiFailure } from '../../server/errors.js';
 import {
   DEPTH_UNAVAILABLE_REASON,
   handleCandles,
   handleQuotes,
   handleStatus,
+  representativeCause,
   type HandlerDeps,
 } from '../../server/handlers.js';
+import {
+  ENV_TWELVE_DATA_PER_DAY,
+  ENV_TWELVE_DATA_PER_MINUTE,
+} from '../../server/provider-registry.js';
+import { parseQuotesProvenance } from '../../src/data/wire-providers.js';
 import { FIXTURE_NOW, fixtureCandles } from '../support/fixtures.js';
 import {
   createFakeVendor,
@@ -35,6 +42,17 @@ import {
 
 const KEY = 'sk-test-key-123456';
 const CONNECTED_ENV = { [ENV_API_KEY]: KEY };
+
+/**
+ * A plan whose request budget covers the whole watchlist in one refresh. The default budget (the
+ * free Twelve Data plan: 8 credits a minute, 800 a day, quotes held to three quarters of that)
+ * does not; the tests of that case use `CONNECTED_ENV` and say so.
+ */
+const WIDE_PLAN_ENV = {
+  ...CONNECTED_ENV,
+  [ENV_TWELVE_DATA_PER_MINUTE]: '600',
+  [ENV_TWELVE_DATA_PER_DAY]: '50000',
+};
 
 function symbolOf(call: VendorCall): string {
   return call.params['symbol'] ?? '';
@@ -187,7 +205,10 @@ describe('GET /api/quotes', () => {
 
   it('serves validated quotes for every requested instrument and allows shared caching', async () => {
     const vendor = healthyVendor();
-    const response = await handleQuotes(get(`/api/quotes?ids=${allIds}`), depsFor(vendor));
+    const response = await handleQuotes(
+      get(`/api/quotes?ids=${allIds}`),
+      depsFor(vendor, WIDE_PLAN_ENV),
+    );
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('Cache-Control'), 'public, max-age=0, s-maxage=60');
     const parsed = parseQuotes(await bodyOf(response));
@@ -241,7 +262,22 @@ describe('GET /api/quotes', () => {
 
   it('reports a rejected key as the response when every request failed that way', async () => {
     const vendor = createFakeVendor(() => vendorError(401, 'invalid key'));
+    const response = await handleQuotes(
+      get(`/api/quotes?ids=${allIds}`),
+      depsFor(vendor, WIDE_PLAN_ENV),
+    );
+    assert.equal(response.status, 502);
+    const parsed = parseError(await bodyOf(response));
+    assert.equal(parsed.ok && parsed.value.error.code, 'provider_auth');
+    assert.equal(vendor.calls.length, 8, 'every instrument was asked');
+  });
+
+  it('still reports a rejected key when part of the batch was held back by the request budget', async () => {
+    // The default budget lets six of the eight requests out. Those six are refused for the key;
+    // the other two never reach the provider and say nothing about it, so they must not hide it.
+    const vendor = createFakeVendor(() => vendorError(401, 'invalid key'));
     const response = await handleQuotes(get(`/api/quotes?ids=${allIds}`), depsFor(vendor));
+    assert.equal(vendor.calls.length, 6, 'the budget held two requests back');
     assert.equal(response.status, 502);
     const parsed = parseError(await bodyOf(response));
     assert.equal(parsed.ok && parsed.value.error.code, 'provider_auth');
@@ -303,6 +339,125 @@ describe('GET /api/quotes', () => {
     );
     assert.equal(response.status, 200);
     assert.equal(vendor.calls.length, 1);
+  });
+});
+
+describe('GET /api/quotes under the default request budget', () => {
+  // The free Twelve Data plan allows 8 credits a minute and one quote costs one credit. Elstand
+  // keeps a quarter of that for chart requests, so six quotes a minute can be asked for.
+  const allIds = INSTRUMENTS.map((instrument) => instrument.id).join(',');
+
+  it('asks only as many instruments as the quote share allows and labels the rest honestly', async () => {
+    const vendor = healthyVendor();
+    const response = await handleQuotes(get(`/api/quotes?ids=${allIds}`), depsFor(vendor));
+    assert.equal(vendor.calls.length, 6, 'three quarters of 8 credits a minute');
+    assert.equal(response.status, 200);
+    assert.equal(
+      response.headers.get('Cache-Control'),
+      'no-store',
+      'a partial answer is not shared',
+    );
+    const body = await bodyOf(response);
+    const parsed = parseQuotes(body);
+    assert.ok(parsed.ok);
+    if (!parsed.ok) return;
+    assert.equal(parsed.value.quotes.length, 6);
+    const held = Object.entries(parsed.value.failures);
+    assert.equal(held.length, 2);
+
+    const provenance = parseQuotesProvenance(body);
+    for (const [id, failure] of held) {
+      assert.equal(failure.code, 'rate_limited');
+      const entry = provenance[id];
+      assert.equal(entry?.state, 'RATE LIMITED');
+      assert.match(entry?.message ?? '', /request budget kept for Twelve Data is spent/);
+      assert.doesNotMatch(
+        entry?.message ?? '',
+        /rejected the request/,
+        'Elstand held the request back; the provider rejected nothing',
+      );
+    }
+    for (const quote of parsed.value.quotes) {
+      assert.equal(provenance[quote.instrumentId]?.state, 'DELAYED');
+    }
+  });
+
+  it('turns the order with the refresh interval so no instrument is starved', async () => {
+    const heldAt = async (timeMs: number): Promise<string[]> => {
+      const vendor = healthyVendor();
+      const response = await handleQuotes(get(`/api/quotes?ids=${allIds}`), {
+        ...depsFor(vendor),
+        now: () => timeMs,
+      });
+      const parsed = parseQuotes(await bodyOf(response));
+      assert.ok(parsed.ok);
+      return parsed.ok ? Object.keys(parsed.value.failures).sort() : [];
+    };
+    const first = await heldAt(FIXTURE_NOW);
+    const next = await heldAt(FIXTURE_NOW + 60_000);
+    assert.equal(first.length, 2);
+    assert.equal(next.length, 2);
+    assert.notDeepEqual(first, next, 'the same two instruments are not held back every time');
+  });
+
+  it('serves the last verified quote, labelled, for an instrument the budget holds back', async () => {
+    const vendor = healthyVendor();
+    const deps = depsFor(vendor);
+    await handleQuotes(get(`/api/quotes?ids=${allIds}`), deps);
+    const later = FIXTURE_NOW + 61_000;
+    const response = await handleQuotes(get(`/api/quotes?ids=${allIds}`), {
+      ...deps,
+      now: () => later,
+    });
+    const body = await bodyOf(response);
+    const parsed = parseQuotes(body);
+    assert.ok(parsed.ok);
+    if (!parsed.ok) return;
+    const provenance = parseQuotesProvenance(body);
+    const cached = parsed.value.quotes.filter(
+      (quote) => provenance[quote.instrumentId]?.state === 'CACHED',
+    );
+    assert.ok(cached.length >= 1, 'a quote from the first answer stands in for a held request');
+    for (const quote of cached) {
+      const entry = provenance[quote.instrumentId];
+      assert.equal(entry?.cache, 'stale-if-error');
+      assert.match(entry?.message ?? '', /^RATE LIMITED — /);
+      assert.match(entry?.message ?? '', /Last verified data: /);
+      assert.match(entry?.message ?? '', /request budget kept for Twelve Data is spent/);
+    }
+  });
+});
+
+describe('representativeCause', () => {
+  const rejected = new ApiFailure('provider_auth', 'The provider rejected the key.');
+  const limited = (local: boolean): ApiFailure =>
+    new ApiFailure('rate_limited', 'Over the limit.', 5, { local });
+  const broken = new ApiFailure('provider_error', 'No data for this symbol.');
+
+  it('reports a rejected key whatever else happened', () => {
+    assert.equal(representativeCause([limited(true), broken, rejected, limited(false)]), rejected);
+  });
+
+  it('prefers what the provider answered over a refusal that never reached it', () => {
+    assert.equal(representativeCause([limited(true), broken, limited(true)]), broken);
+    const providerLimit = limited(false);
+    assert.equal(representativeCause([limited(true), providerLimit]), providerLimit);
+  });
+
+  it('keeps a single shared cause as it is, local or not', () => {
+    const [first, second] = [limited(true), limited(true)];
+    assert.equal(representativeCause([first, second]), first);
+    assert.equal(representativeCause([broken, broken]), broken);
+  });
+
+  it('reports a provider error when the answered requests failed in different ways', () => {
+    const cause = representativeCause([broken, limited(false)]);
+    assert.equal(cause?.code, 'provider_error');
+    assert.equal(cause?.message, broken.message);
+  });
+
+  it('has no cause when nothing failed', () => {
+    assert.equal(representativeCause([]), undefined);
   });
 });
 

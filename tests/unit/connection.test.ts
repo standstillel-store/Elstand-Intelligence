@@ -3,6 +3,10 @@ import { describe, it } from 'node:test';
 import { createConnection, type ConnectionState } from '../../src/app/connection.js';
 import { ApiClientError, createApiClient, isAbortError } from '../../src/data/api-client.js';
 import { ENV_API_KEY, ENV_REALTIME } from '../../server/env.js';
+import {
+  ENV_TWELVE_DATA_PER_DAY,
+  ENV_TWELVE_DATA_PER_MINUTE,
+} from '../../server/provider-registry.js';
 import { FIXTURE_NOW, fixtureCandles } from '../support/fixtures.js';
 import { createAppFetch } from '../support/app-fetch.js';
 import {
@@ -15,6 +19,17 @@ import {
 } from '../support/fake-vendor.js';
 
 const KEY = 'sk-test-key-123456';
+
+/**
+ * A plan whose request budget covers the whole watchlist in one refresh. The default budget (the
+ * free Twelve Data plan: 8 credits a minute, quotes held to three quarters of that) does not, so a
+ * test that needs all eight quotes at once says which plan it is simulating.
+ */
+const WIDE_PLAN = {
+  [ENV_API_KEY]: KEY,
+  [ENV_TWELVE_DATA_PER_MINUTE]: '600',
+  [ENV_TWELVE_DATA_PER_DAY]: '50000',
+};
 const signal = new AbortController().signal;
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
@@ -232,7 +247,7 @@ describe('connection: connected', () => {
 
   it('loads validated quotes, candles and an honest depth answer through the whole chain', async () => {
     const vendor = healthyVendor();
-    const { service } = connectedState((await connect({ [ENV_API_KEY]: KEY }, vendor)).state.get());
+    const { service } = connectedState((await connect(WIDE_PLAN, vendor)).state.get());
 
     service.loadQuotes();
     service.loadCandles('EURUSD', 'H1');
@@ -308,7 +323,7 @@ describe('connection: connected', () => {
         ? vendorError(403, 'XAU/USD is not included in your plan')
         : quotePayload(call.params['symbol'] ?? ''),
     );
-    const { service } = connectedState((await connect({ [ENV_API_KEY]: KEY }, vendor)).state.get());
+    const { service } = connectedState((await connect(WIDE_PLAN, vendor)).state.get());
     service.loadQuotes();
     await until(() => service.quotes.get().status === 'ready', 'quotes');
     const quotes = service.quotes.get();

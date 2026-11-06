@@ -145,6 +145,17 @@ export function rateLimitedMessage(providerLabel: string, lastVerifiedMs: number
     : `${lead} Last verified data: ${formatProviderTime(lastVerifiedMs)}.`;
 }
 
+/**
+ * The same state when Elstand's own request budget for a provider is spent: the provider was not
+ * asked, so it cannot be said to have rejected anything.
+ */
+export function budgetSpentMessage(providerLabel: string, lastVerifiedMs: number | null): string {
+  const lead = `RATE LIMITED — The request budget kept for ${providerLabel} is spent, so this request was not sent.`;
+  return lastVerifiedMs === null
+    ? lead
+    : `${lead} Last verified data: ${formatProviderTime(lastVerifiedMs)}.`;
+}
+
 export function staleMessage(lastRetrievalMs: number): string {
   return `STALE — Last successful retrieval: ${formatProviderTime(lastRetrievalMs)}. Current data could not be verified.`;
 }

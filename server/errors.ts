@@ -5,6 +5,12 @@ export interface FailureOptions {
   readonly retryable?: boolean;
   /** Which budget ran out, when the failure is a rate limit. */
   readonly budget?: 'minute' | 'day';
+  /**
+   * True when this server's own request budget refused the request, so the provider was never
+   * asked. A refusal the provider itself gave (an HTTP 429, a quota note) is not local, and
+   * neither is the pause that follows one.
+   */
+  readonly local?: boolean;
 }
 
 /**
@@ -16,6 +22,7 @@ export class ApiFailure extends Error {
   readonly retryAfterSeconds: number | null;
   readonly retryable: boolean;
   readonly budget: 'minute' | 'day' | null;
+  readonly local: boolean;
 
   constructor(
     code: ApiErrorCode,
@@ -29,6 +36,7 @@ export class ApiFailure extends Error {
     this.retryAfterSeconds = retryAfterSeconds;
     this.retryable = options.retryable ?? false;
     this.budget = options.budget ?? null;
+    this.local = options.local ?? false;
   }
 }
 

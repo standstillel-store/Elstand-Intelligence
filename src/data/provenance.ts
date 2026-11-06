@@ -56,6 +56,10 @@ const isNullableTime = (value: unknown): value is number | null =>
 const isText = (value: unknown): value is string =>
   typeof value === 'string' && value.trim() !== '';
 
+// A guard that names `null` itself: the Vercel builder type-checks without strictNullChecks, where
+// `value !== null && !isText(value)` does not narrow an `unknown` (see tsconfig.vercel.json).
+const isTextOrNull = (value: unknown): value is string | null => value === null || isText(value);
+
 export type ProvenanceParse =
   | { readonly kind: 'parsed'; readonly value: Provenance }
   | { readonly kind: 'invalid'; readonly error: string };
@@ -77,7 +81,7 @@ export function parseProvenance(input: unknown): ProvenanceParse {
     return bad('provenance times must be epoch milliseconds or null');
   }
   const message = input['message'];
-  if (message !== null && !isText(message)) return bad('provenance.message must be text or null');
+  if (!isTextOrNull(message)) return bad('provenance.message must be text or null');
 
   const fallbackInput = input['fallback'];
   let fallback: Provenance['fallback'] = null;

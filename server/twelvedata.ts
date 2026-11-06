@@ -65,10 +65,13 @@ function failureFor(status: number, detail: string, retryAfterHeader: string | n
   }
   if (status === 429) {
     const seconds = Number(retryAfterHeader);
+    // The plan's daily allowance and its per-minute allowance are different waits.
+    const daily = /\b(day|daily)\b/i.test(detail);
     return new ApiFailure(
       'rate_limited',
       `The provider's request limit was reached (HTTP 429).${suffix}`,
       Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null,
+      daily ? { budget: 'day' } : undefined,
     );
   }
   if (status === 400 || status === 403 || status === 404) {
@@ -77,7 +80,10 @@ function failureFor(status: number, detail: string, retryAfterHeader: string | n
       `The provider could not serve this request (HTTP ${status}).${suffix}`,
     );
   }
-  return new ApiFailure('provider_error', `The provider failed (HTTP ${status}).${suffix}`);
+  // A 5xx is the provider's own failure and can pass: worth one bounded retry.
+  return new ApiFailure('provider_error', `The provider failed (HTTP ${status}).${suffix}`, null, {
+    retryable: status >= 500,
+  });
 }
 
 async function getUpstream(
@@ -97,7 +103,9 @@ async function getUpstream(
       signal: AbortSignal.timeout(deps.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
   } catch {
-    throw new ApiFailure('provider_unreachable', 'Could not reach the data provider.');
+    throw new ApiFailure('provider_unreachable', 'Could not reach the data provider.', null, {
+      retryable: true,
+    });
   }
 
   let body: unknown = null;

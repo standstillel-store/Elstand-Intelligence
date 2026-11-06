@@ -1,17 +1,32 @@
 import { INSTRUMENTS, findInstrument, type Instrument } from '../src/core/instruments.js';
 import { isTimeframe } from '../src/core/types.js';
-import { DEFAULT_CANDLE_LIMIT, type Quote } from '../src/data/provider.js';
-import { validateCandles, validateQuote } from '../src/data/validate.js';
-import type { ApiErrorCode, WireCandles, WireQuotes, WireStatus } from '../src/data/wire.js';
-import { createTtlCache, type TtlCache } from './cache.js';
+import type { Quote } from '../src/data/provider.js';
+import type { Provenance } from '../src/data/provenance.js';
+import type { ApiErrorCode } from '../src/data/wire.js';
+import type {
+  WireCandlesAnswer,
+  WireQuotesAnswer,
+  WireStatusBody,
+} from '../src/data/wire-providers.js';
+import { sharedCacheControl } from './cache-policy.js';
+import type { TtlCache } from './cache.js';
 import { ENV_API_KEY, readServerConfig, type ServerConfig } from './env.js';
-import { ApiFailure, httpStatusFor, toApiFailure } from './errors.js';
-import { fetchCandles, fetchQuote, type UpstreamDeps } from './twelvedata.js';
+import { ApiFailure, toApiFailure } from './errors.js';
+import { loadCandles, loadQuote } from './forex-service.js';
+import { describeProviders } from './provider-registry.js';
+import { runtimeFor, type ProviderRuntime } from './provider-runtime.js';
+import { NO_STORE, errorResponse, json, notGet } from './respond.js';
+import type { ServiceDeps } from './service.js';
 
 /**
- * The three API handlers, written against the Web `Request` / `Response` types so they run
- * unchanged on Vercel's Node runtime, in the local dev server and in tests. Everything the
- * handlers touch from the outside (environment, network, clock, cache) is passed in.
+ * The status, quotes and candles handlers, written against the Web `Request` / `Response` types
+ * so they run unchanged on Vercel's Node runtime, in the local dev server and in tests.
+ * Everything the handlers touch from the outside (environment, network, clock, cache) is
+ * passed in.
+ *
+ * Quotes and candles are asked through the shared service path (request budget, bounded retry,
+ * the last verified answer when the provider cannot be asked), and each answer says in its
+ * `provenance` which provider answered and in which state.
  */
 
 export interface HandlerDeps {
@@ -20,6 +35,11 @@ export interface HandlerDeps {
   readonly now: () => number;
   /** Defaults to one shared in-memory cache per server instance. */
   readonly cache?: TtlCache;
+  /**
+   * The request budgets, retry and caches of the provider calls. Defaults to one per `cache`,
+   * or one per server instance when there is no cache either.
+   */
+  readonly runtime?: ProviderRuntime;
 }
 
 export const TWELVE_DATA_SOURCE_ID = 'twelvedata';
@@ -28,47 +48,9 @@ export const DEPTH_UNAVAILABLE_REASON =
   'No order-book depth adapter exists for this provider in this build. Spot FX and XAU/USD are ' +
   'traded over the counter, so there is no consolidated book to show.';
 
-const defaultCache = createTtlCache();
-
-const NO_STORE = 'no-store';
-const sharedCache = (seconds: number): string => `public, max-age=0, s-maxage=${seconds}`;
-
-function json(
-  body: unknown,
-  status: number,
-  cacheControl: string,
-  extra: Record<string, string> = {},
-): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'X-Content-Type-Options': 'nosniff',
-      'Cache-Control': cacheControl,
-      ...extra,
-    },
-  });
-}
-
-function errorResponse(failure: ApiFailure): Response {
-  const extra =
-    failure.retryAfterSeconds === null ? {} : { 'Retry-After': String(failure.retryAfterSeconds) };
-  return json(
-    { error: { code: failure.code, message: failure.message } },
-    httpStatusFor(failure.code),
-    NO_STORE,
-    extra,
-  );
-}
-
-function notGet(request: Request): Response | null {
-  if (request.method === 'GET') return null;
-  return json(
-    { error: { code: 'bad_request', message: 'Only GET is supported.' } },
-    405,
-    NO_STORE,
-    { Allow: 'GET' },
-  );
+/** The pieces the capability services take. */
+export function serviceDepsOf(deps: HandlerDeps): ServiceDeps {
+  return { env: deps.env, fetch: deps.fetch, now: deps.now, runtime: runtimeFor(deps) };
 }
 
 function requireConfig(deps: HandlerDeps): ServerConfig {
@@ -82,21 +64,18 @@ function requireConfig(deps: HandlerDeps): ServerConfig {
   return reading.config;
 }
 
-function upstreamFor(config: ServerConfig, deps: HandlerDeps): UpstreamDeps {
-  return { fetch: deps.fetch, apiKey: config.apiKey, now: deps.now };
-}
-
 export function handleStatus(request: Request, deps: HandlerDeps): Promise<Response> {
   const blocked = notGet(request);
   if (blocked !== null) return Promise.resolve(blocked);
   const reading = readServerConfig(deps.env);
+  const providers = describeProviders(deps.env);
   // `in` rather than the boolean flag: the Vercel builder type-checks without strictNullChecks,
   // where a boolean discriminant does not narrow (see tsconfig.vercel.json).
   if ('missing' in reading) {
-    const notConnected: WireStatus = { connected: false, missing: reading.missing };
+    const notConnected: WireStatusBody = { connected: false, missing: reading.missing, providers };
     return Promise.resolve(json(notConnected, 200, NO_STORE));
   }
-  const body: WireStatus = {
+  const body: WireStatusBody = {
     connected: true,
     source: {
       id: TWELVE_DATA_SOURCE_ID,
@@ -109,6 +88,7 @@ export function handleStatus(request: Request, deps: HandlerDeps): Promise<Respo
       quotes: reading.config.refreshSeconds,
       candles: reading.config.refreshSeconds,
     },
+    providers,
   };
   return Promise.resolve(json(body, 200, NO_STORE));
 }
@@ -129,9 +109,18 @@ function parseInstrumentList(raw: string | null): Instrument[] {
   return [...found.values()];
 }
 
-type QuoteOutcome =
-  | { readonly kind: 'quote'; readonly instrument: Instrument; readonly quote: Quote }
-  | { readonly kind: 'failure'; readonly instrument: Instrument; readonly failure: ApiFailure };
+/**
+ * The same list starting `seed` places further on. The provider's request budget can be smaller
+ * than the watchlist (the free Twelve Data plan allows 8 credits a minute), and requests are
+ * served in order, so a fixed order would starve the same instruments at every refresh. Turning
+ * the order with the refresh interval gives every instrument its turn. Nothing is random: the
+ * same instant always gives the same order.
+ */
+function turned<T>(items: readonly T[], seed: number): T[] {
+  if (items.length === 0) return [];
+  const offset = seed % items.length;
+  return [...items.slice(offset), ...items.slice(0, offset)];
+}
 
 export async function handleQuotes(request: Request, deps: HandlerDeps): Promise<Response> {
   const blocked = notGet(request);
@@ -139,63 +128,52 @@ export async function handleQuotes(request: Request, deps: HandlerDeps): Promise
   try {
     const config = requireConfig(deps);
     const instruments = parseInstrumentList(new URL(request.url).searchParams.get('ids'));
-    const upstream = upstreamFor(config, deps);
-    const cache = deps.cache ?? defaultCache;
+    const service = serviceDepsOf(deps);
     const ttlMs = config.refreshSeconds * 1000;
 
-    const outcomes = await Promise.all(
-      instruments.map(async (instrument): Promise<QuoteOutcome> => {
-        try {
-          const quote = await cache.getOrLoad(
-            `quote:${instrument.id}`,
-            ttlMs,
-            deps.now(),
-            async () => {
-              const fetched = await fetchQuote(upstream, instrument);
-              const issues = validateQuote(fetched);
-              if (issues.length > 0) {
-                throw new ApiFailure(
-                  'provider_error',
-                  `The provider returned an invalid quote: ${issues[0] ?? 'unknown'}.`,
-                );
-              }
-              return fetched;
-            },
-          );
-          return { kind: 'quote', instrument, quote };
-        } catch (error) {
-          return { kind: 'failure', instrument, failure: toApiFailure(error) };
-        }
-      }),
+    const answered = await Promise.all(
+      turned(instruments, Math.floor(deps.now() / ttlMs)).map(async (instrument) => ({
+        instrument,
+        outcome: await loadQuote(service, instrument),
+      })),
     );
+    const byId = new Map(answered.map((item) => [item.instrument.id, item.outcome]));
 
     const quotes: Quote[] = [];
     const failures: Record<string, { code: ApiErrorCode; message: string }> = {};
-    for (const outcome of outcomes) {
-      if (outcome.kind === 'quote') quotes.push(outcome.quote);
-      else
-        failures[outcome.instrument.id] = {
-          code: outcome.failure.code,
-          message: outcome.failure.message,
-        };
+    const provenance: Record<string, Provenance> = {};
+    const causes: ApiFailure[] = [];
+    let shareMs = Number.POSITIVE_INFINITY;
+    // The answer keeps the order the browser asked in, whatever order the requests ran in.
+    for (const instrument of instruments) {
+      const outcome = byId.get(instrument.id);
+      if (outcome === undefined) continue;
+      provenance[instrument.id] = outcome.provenance;
+      if (outcome.kind === 'data') {
+        quotes.push(outcome.value);
+        shareMs = Math.min(shareMs, outcome.shareMs);
+        continue;
+      }
+      const failure =
+        outcome.failure ??
+        new ApiFailure(
+          'not_connected',
+          outcome.provenance.message ?? 'The provider is not connected.',
+        );
+      causes.push(failure);
+      failures[instrument.id] = { code: failure.code, message: failure.message };
     }
 
     if (quotes.length === 0) {
-      // Nothing to show. If every request failed the same way (a rejected key, a rate limit)
-      // report that cause as the response, so the browser can react to it.
-      const failed = outcomes.flatMap((outcome) =>
-        outcome.kind === 'failure' ? [outcome.failure] : [],
+      // Nothing to show: report the cause that explains it, so the browser can react to it.
+      throw (
+        representativeCause(causes) ?? new ApiFailure('provider_error', 'No quotes were returned.')
       );
-      const first = failed[0];
-      if (first === undefined) throw new ApiFailure('provider_error', 'No quotes were returned.');
-      throw failed.every((failure) => failure.code === first.code)
-        ? first
-        : new ApiFailure('provider_error', first.message);
     }
 
-    const body: WireQuotes = { quotes, failures };
+    const body: WireQuotesAnswer = { quotes, failures, provenance };
     const hasFailures = Object.keys(failures).length > 0;
-    return json(body, 200, hasFailures ? NO_STORE : sharedCache(config.refreshSeconds));
+    return json(body, 200, hasFailures ? NO_STORE : sharedCacheControl(shareMs));
   } catch (error) {
     return errorResponse(toApiFailure(error));
   }
@@ -205,46 +183,53 @@ export async function handleCandles(request: Request, deps: HandlerDeps): Promis
   const blocked = notGet(request);
   if (blocked !== null) return blocked;
   try {
-    const config = requireConfig(deps);
+    requireConfig(deps);
     const params = new URL(request.url).searchParams;
     const instrument = findInstrument(params.get('id') ?? '');
     if (instrument === undefined) throw new ApiFailure('bad_request', 'Unknown instrument.');
     const timeframe = params.get('tf');
     if (!isTimeframe(timeframe)) throw new ApiFailure('bad_request', 'Unknown timeframe.');
 
-    const upstream = upstreamFor(config, deps);
-    const cache = deps.cache ?? defaultCache;
-    const candles = await cache.getOrLoad(
-      `candles:${instrument.id}:${timeframe}`,
-      config.refreshSeconds * 1000,
-      deps.now(),
-      async () => {
-        const fetched = await fetchCandles(
-          upstream,
-          instrument,
-          timeframe,
-          DEFAULT_CANDLE_LIMIT[timeframe],
-        );
-        const issues = validateCandles(fetched);
-        if (issues.length > 0) {
-          throw new ApiFailure(
-            'provider_error',
-            `The provider returned invalid candles: ${issues.join('; ')}.`,
-          );
-        }
-        return fetched;
-      },
-    );
-
-    const body: WireCandles = {
+    const outcome = await loadCandles(serviceDepsOf(deps), instrument, timeframe);
+    if (outcome.kind === 'withheld') {
+      throw (
+        outcome.failure ??
+        new ApiFailure(
+          'not_connected',
+          outcome.provenance.message ?? 'The provider is not connected.',
+        )
+      );
+    }
+    const body: WireCandlesAnswer = {
       instrumentId: instrument.id,
       timeframe,
-      candles: candles.map((bar) => [bar.time, bar.open, bar.high, bar.low, bar.close] as const),
+      candles: outcome.value.map(
+        (bar) => [bar.time, bar.open, bar.high, bar.low, bar.close] as const,
+      ),
+      provenance: outcome.provenance,
     };
-    return json(body, 200, sharedCache(config.refreshSeconds));
+    return json(body, 200, sharedCacheControl(outcome.shareMs));
   } catch (error) {
     return errorResponse(toApiFailure(error));
   }
+}
+
+/**
+ * The failure that stands for a response with nothing to show. A rejected credential is the root
+ * cause of whatever else happened (a request this server's own budget held back says nothing
+ * about the provider), and it is what lets the browser flip to ENV NOT CONNECTION. Otherwise the
+ * requests the provider actually answered decide; only when none did does a local refusal count.
+ */
+export function representativeCause(causes: readonly ApiFailure[]): ApiFailure | undefined {
+  const rejected = causes.find((failure) => failure.code === 'provider_auth');
+  if (rejected !== undefined) return rejected;
+  const asked = causes.filter((failure) => !failure.local);
+  const pool = asked.length > 0 ? asked : causes;
+  const first = pool[0];
+  if (first === undefined) return undefined;
+  return pool.every((failure) => failure.code === first.code)
+    ? first
+    : new ApiFailure('provider_error', first.message);
 }
 
 /** The instruments the API will quote. Exposed so tests can assert the watchlist order. */

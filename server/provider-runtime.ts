@@ -86,7 +86,11 @@ export function serve<T>(
             'rate_limited',
             'The request budget kept for this provider is spent for now.',
             Math.max(1, Math.ceil(verdict.retryAfterMs / 1000)),
-            { budget: verdict.scope === 'day' ? 'day' : 'minute' },
+            // `blocked` is the pause after the provider itself refused; the others are our own budget.
+            {
+              budget: verdict.scope === 'day' ? 'day' : 'minute',
+              local: verdict.scope !== 'blocked',
+            },
           );
         }
         try {

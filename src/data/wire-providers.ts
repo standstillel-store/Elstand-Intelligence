@@ -6,7 +6,8 @@ import {
   type ProviderId,
   type ProviderState,
 } from '../core/provider-state.js';
-import type { Parsed } from './wire.js';
+import { parseProvenance, type Provenance } from './provenance.js';
+import type { Parsed, WireCandles, WireQuotes, WireStatus } from './wire.js';
 
 /**
  * What the server says about its provider connections: which variables each provider reads
@@ -59,6 +60,25 @@ export interface WireProviderConfig {
 
 export interface WireProviders {
   readonly providers: readonly WireProviderConfig[];
+}
+
+/**
+ * What `/api/status` sends: the established status fields plus the provider configuration. The
+ * established parser (`parseStatus`) ignores the addition; `parseProviders` reads it.
+ */
+export type WireStatusBody = WireStatus & WireProviders;
+
+/** `/api/quotes` with the provenance of each quote: which provider answered, and in which state. */
+export type WireQuotesAnswer = WireQuotes & {
+  readonly provenance: Readonly<Record<string, Provenance>>;
+};
+
+/** `/api/candles` with the provenance of the series. */
+export type WireCandlesAnswer = WireCandles & { readonly provenance: Provenance };
+
+/** `/api/providers`: the configuration, and the result of a probe when one was asked for. */
+export interface WireProvidersAnswer extends WireProviders {
+  readonly probe?: WireProbe;
 }
 
 export const AUTHENTICATION_RESULTS = [
@@ -202,4 +222,43 @@ export function parseProbe(input: unknown): Parsed<WireProbe> {
       dataAsOf: dataAsOf as number | null,
     },
   };
+}
+
+/** The configuration, and the probe result when the request asked for one. */
+export function parseProvidersAnswer(
+  input: unknown,
+): Parsed<{ readonly providers: readonly WireProviderConfig[]; readonly probe: WireProbe | null }> {
+  const providers = parseProviders(input);
+  if (providers.ok === false) return { ok: false, error: providers.error };
+  const raw = isRecord(input) ? input['probe'] : undefined;
+  if (raw === undefined || raw === null) {
+    return { ok: true, value: { providers: providers.value.providers, probe: null } };
+  }
+  const probe = parseProbe(raw);
+  if (probe.ok === false) return { ok: false, error: probe.error };
+  return { ok: true, value: { providers: providers.value.providers, probe: probe.value } };
+}
+
+/**
+ * The provenance the server attached to each quote, by instrument id. It is metadata, so a
+ * response without it, or with an entry that does not validate, still yields its quotes: the
+ * entries that do validate are returned and the rest are left out.
+ */
+export function parseQuotesProvenance(input: unknown): Readonly<Record<string, Provenance>> {
+  const found: Record<string, Provenance> = {};
+  const raw = isRecord(input) ? input['provenance'] : undefined;
+  if (!isRecord(raw)) return found;
+  for (const [id, entry] of Object.entries(raw)) {
+    const parsed = parseProvenance(entry);
+    if (parsed.kind === 'parsed') found[id] = parsed.value;
+  }
+  return found;
+}
+
+/** The provenance of a candle series, or null when the response carries none that validates. */
+export function parseCandlesProvenance(input: unknown): Provenance | null {
+  const raw = isRecord(input) ? input['provenance'] : undefined;
+  if (raw === undefined) return null;
+  const parsed = parseProvenance(raw);
+  return parsed.kind === 'parsed' ? parsed.value : null;
 }

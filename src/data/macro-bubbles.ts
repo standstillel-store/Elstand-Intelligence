@@ -30,8 +30,20 @@ export interface CurrencyMacroPoint {
   };
 }
 
+/** A currency that is not drawn, and why: a missing input is stated, never filled in. */
+export interface BubbleOmission {
+  /** ISO 4217 code, e.g. "GBP". */
+  readonly currency: string;
+  readonly reason: string;
+}
+
 export type BubbleResult =
-  | { readonly status: 'available'; readonly points: readonly CurrencyMacroPoint[] }
+  | {
+      readonly status: 'available';
+      readonly points: readonly CurrencyMacroPoint[];
+      /** Currencies that are not drawn, each with the reason. Absent when the source gives none. */
+      readonly omitted?: readonly BubbleOmission[];
+    }
   | { readonly status: 'unavailable'; readonly reason: string };
 
 export interface BubbleProvider {
