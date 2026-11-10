@@ -89,6 +89,8 @@ export async function probeProvider(deps: ServiceDeps, id: ProviderId): Promise<
     const provenance = unreadyProvenance(id, capability, 'configuration', reading);
     return {
       provider: id,
+      capability: provenance.capability,
+      endpoint: provenance.endpoint,
       state: provenance.state,
       authentication: reading.spec.keyRequirement === 'none' ? 'not-required' : 'unknown',
       dataRetrieved: false,
@@ -103,6 +105,8 @@ export async function probeProvider(deps: ServiceDeps, id: ProviderId): Promise<
   const retrieved = outcome.kind === 'data' && outcome.provenance.cache !== 'stale-if-error';
   return {
     provider: id,
+    capability: outcome.provenance.capability,
+    endpoint: outcome.provenance.endpoint,
     state: outcome.provenance.state,
     authentication: authenticationOf(reading, outcome),
     dataRetrieved: retrieved,

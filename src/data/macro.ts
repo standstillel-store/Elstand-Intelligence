@@ -7,6 +7,8 @@
  *     UNCLASSIFIED). "High impact" is a claim, and a claim needs an author.
  */
 
+import type { Provenance } from './provenance.js';
+
 export interface SourceAttribution {
   readonly name: string;
   readonly url: string | null;
@@ -89,9 +91,34 @@ export interface NewsItem {
   readonly providerSentiment?: ProviderSentiment;
 }
 
+/**
+ * Where a feed's answer came from, for a provider that reports it (the Elstand server does).
+ * A feed without it (a test double, an adapter that predates provenance) is shown as before.
+ */
+export interface FeedOrigin {
+  /** Which provider answered, when, in which state, and from which cache. */
+  readonly provenance: Provenance;
+  /** The acknowledgement the data provider asks for, with its link. Null when none is asked for. */
+  readonly attribution: { readonly name: string; readonly url: string } | null;
+  /** Plain statements of what the list leaves out: items not shown, how many more exist. */
+  readonly notes: readonly string[];
+  /** For a derived answer: the provenance of every input behind it. */
+  readonly inputs?: readonly Provenance[];
+}
+
 export type FeedResult<T> =
-  | { readonly status: 'available'; readonly items: readonly T[]; readonly asOf: number }
-  | { readonly status: 'unavailable'; readonly reason: string };
+  | {
+      readonly status: 'available';
+      readonly items: readonly T[];
+      readonly asOf: number;
+      readonly origin?: FeedOrigin;
+    }
+  | {
+      readonly status: 'unavailable';
+      readonly reason: string;
+      /** The provider's own statement of why (ENV NOT CONNECTED, RATE LIMITED, ERROR, …). */
+      readonly origin?: FeedOrigin;
+    };
 
 export interface TimeRange {
   readonly fromMs: number;

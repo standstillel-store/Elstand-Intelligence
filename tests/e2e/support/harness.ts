@@ -29,7 +29,21 @@ export interface StartOptions {
 /** A key that is obviously not real. The fake vendor ignores it; the server only needs it set. */
 export const TEST_API_KEY = 'test-key-not-a-real-credential';
 
+/**
+ * The stand-in vendor has no plan, but the server keeps its own request budget for Twelve Data,
+ * which defaults to the free Basic plan (8 credits a minute). This harness freezes the server's
+ * clock, so a budget window never slides, and loading the 8-instrument watchlist alone would
+ * spend the whole budget. So the tests declare a large plan; the budget itself is tested in
+ * tests/unit, and `FREE_PLAN_ENV` below shows what the page says when the real default runs out.
+ */
 export const CONNECTED_ENV = {
+  TWELVE_DATA_API_KEY: TEST_API_KEY,
+  TWELVE_DATA_CREDITS_PER_MINUTE: '10000',
+  TWELVE_DATA_CREDITS_PER_DAY: '1000000',
+} as const;
+
+/** A key and nothing else: the server assumes the free plan's budget, as it does in production. */
+export const FREE_PLAN_ENV = {
   TWELVE_DATA_API_KEY: TEST_API_KEY,
 } as const;
 

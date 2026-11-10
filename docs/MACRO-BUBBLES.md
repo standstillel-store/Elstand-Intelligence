@@ -84,10 +84,35 @@ Under the chart, a data table lists every currency with the three values, the ba
 the names of the sources. Each bubble can be focused with the keyboard, and selecting one opens its
 detail, with every value's source, observation time and retrieval time.
 
-## State in Phase 1
+## Where the values come from
 
-There is no macro-series adapter. Policy rates and CPI need a licensed source for each currency, and
-the one-month price change needs a stated basis, so the provider says exactly that
-(`NO_BUBBLE_FEED_REASON`) and the module shows **ENV NOT CONNECTION** with that reason. The renderer,
-the encoding and the validation are complete and are verified with test fixtures that live under
-`tests/` and cannot reach the product.
+The server builds the bubbles (`/api/bubbles`, `loadBubbles` in `server/macro-service.ts`) from real
+inputs, and the interface draws what it returns. Nothing in the browser computes or supplies a value.
+
+| Value                   | Input                                                                                                                                                                                   | Provider                                                                          |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Policy rate             | The series named for the currency (euro area: the ECB deposit facility rate, `ECBDFR`), its newest observation.                                                                         | FRED                                                                              |
+| Inflation, year on year | The monthly consumer-price index (euro area: the HICP, `CP0000EZ19M086NEST`). Elstand computes the year-on-year change from the newest observation and the one twelve months before it. | FRED                                                                              |
+| One-month price change  | The pair's daily closes (EUR/USD), about 30 days apart, close to close, with the basis stated.                                                                                          | Twelve Data, with Alpha Vantage only as the documented fallback for daily candles |
+
+Every bubble is therefore **CALCULATED**, and the detail of a selected bubble names each input and
+its source. The three numbers of one currency can come from different providers and different dates;
+the page says so.
+
+Today only the **euro** is covered. USD is the base of every price change here, so it has no
+one-month change to draw. GBP, JPY, CHF, CAD, AUD and NZD are listed as omitted, each with the reason:
+no current policy-rate and consumer-price series is configured for them (the ones FRED offers are no
+longer updated), and Elstand does not estimate missing values. A currency whose input could not be
+retrieved is omitted the same way, with that reason.
+
+When a provider is missing the module says so in words instead of drawing:
+
+- Without `FRED_API_KEY`: **ENV NOT CONNECTION**, with ENV NOT CONNECTED — FRED_API_KEY is missing.
+  Macro observations from FRED are unavailable.
+- Without the daily candles (no Twelve Data key, or both it and the fallback failed), the euro is
+  omitted with the provider's reason, and if nothing can be drawn the module says why.
+
+The renderer, the encoding and the validation are exercised with test fixtures that live under
+`tests/` and cannot reach the product. How each input is fetched, cached and labelled is in
+[ENVIRONMENT.md](ENVIRONMENT.md) and [DATA-INTEGRITY.md](DATA-INTEGRITY.md). The inputs have not yet
+been checked against the live FRED API (see [ENVIRONMENT.md](ENVIRONMENT.md#fred)).

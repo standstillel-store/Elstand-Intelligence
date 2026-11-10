@@ -566,7 +566,14 @@ export function createChartPanel(ctx: AppContext): View {
 
     const series = ctx.selectedSeries.get();
     updateBadge(seriesBadge, series.state);
-    setText(statusSource, source.label);
+    // The label names who actually supplied the candles: a fallback is never shown as the primary.
+    const answeredBy = ctx.provenance.get().candles;
+    setText(
+      statusSource,
+      answeredBy !== null && answeredBy.fallback !== null
+        ? `${answeredBy.providerLabel} · fallback`
+        : source.label,
+    );
 
     const newest = model.candles[model.candles.length - 1];
     const now = ctx.now.get();

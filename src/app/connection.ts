@@ -1,7 +1,7 @@
 import { createStore, type ReadableStore } from '../core/store.js';
 import type { SourceInfo } from '../core/types.js';
 import { ApiClientError, createApiClient, isAbortError } from '../data/api-client.js';
-import { createHttpProvider } from '../data/http-provider.js';
+import { createHttpProvider, type HttpProviderOptions } from '../data/http-provider.js';
 import { createMarketDataService, type MarketDataService } from '../data/service.js';
 import { API_STATUS_PATH, parseStatus } from '../data/wire.js';
 
@@ -37,6 +37,8 @@ export interface Connection {
 export interface ConnectionOptions {
   readonly fetch: typeof fetch;
   readonly now?: () => number;
+  /** Receives the provenance of every quote and candle answer (see HttpProviderOptions). */
+  readonly onProvenance?: HttpProviderOptions['onProvenance'];
 }
 
 export function createConnection(options: ConnectionOptions): Connection {
@@ -79,6 +81,8 @@ export function createConnection(options: ConnectionOptions): Connection {
           if (mine === generation)
             state.set({ status: 'not-connected', detail: reason, missing: [] });
         },
+        ...(options.onProvenance === undefined ? {} : { onProvenance: options.onProvenance }),
+        ...(options.now === undefined ? {} : { now: options.now }),
       });
       const serviceOptions = options.now === undefined ? {} : { now: options.now };
       state.set({

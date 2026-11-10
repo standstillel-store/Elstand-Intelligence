@@ -4,6 +4,7 @@ import { ENV_NOT_CONNECTED } from '../../src/core/connection-text.js';
 import { jsonResponse, vendorError, type VendorCall } from '../support/fake-vendor.js';
 import {
   CONNECTED_ENV,
+  FREE_PLAN_ENV,
   launchBrowser,
   startApp,
   type BrowserSession,
@@ -391,7 +392,9 @@ describe('chart: states without a chart', () => {
         call.path === '/time_series' && failing ? vendorError(500, 'upstream exploded') : undefined,
     });
     try {
-      await page.waitForSelector('.chart__overlay .notice');
+      // The server retries a failing provider once, after a short wait, before it gives up, so
+      // the overlay says "Loading" first. Wait for the failure itself, not for any notice.
+      await page.locator('.chart__overlay', { hasText: 'CHART FAILED' }).waitFor();
       const message = await text(page, '.chart__overlay');
       assert.match(message, /CHART FAILED/);
       assert.match(message, /EUR\/USD H1/);
@@ -416,6 +419,34 @@ describe('chart: states without a chart', () => {
       await page.waitForSelector('.chart__overlay .env-block__label');
       assert.equal(await text(page, '.chart__overlay .env-block__label'), ENV_NOT_CONNECTED);
       assert.equal(await page.locator('.chart__canvas').isVisible(), false);
+    } finally {
+      await dispose(app, context);
+    }
+  });
+});
+
+describe('chart: the free plan runs out', () => {
+  it('says the request budget is spent, asks the vendor no more than the plan allows, and shows no number it did not get', async () => {
+    const vendor = createMarketVendor();
+    const app = await startApp({ env: FREE_PLAN_ENV, vendor });
+    const { page, context } = await session.newPage();
+    try {
+      await page.goto(`${app.url}/#/forex/EURUSD/H1`);
+      await waitForCandles(page);
+      const refused = page.locator('.wl__row', {
+        hasText: 'No quote: The request budget kept for this provider is spent for now.',
+      });
+      await refused.first().waitFor();
+      // 8 credits a minute, of which quotes may use three quarters: six quotes were asked for,
+      // not eight, so the candles keep their share.
+      assert.equal(vendor.calls.filter((call) => call.path === '/quote').length, 6);
+      assert.ok(chartCalls(vendor.calls).length >= 1, 'the chart still got its candles');
+      assert.equal(await refused.count(), 2);
+      for (const row of await refused.all()) {
+        const rowText = await row.innerText();
+        assert.match(rowText, /N\/A/);
+        assert.doesNotMatch(rowText, /\d\.\d{3}/, 'a quote that was not obtained shows no price');
+      }
     } finally {
       await dispose(app, context);
     }

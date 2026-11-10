@@ -1,0 +1,187 @@
+/* ---- provider status page and the state words it shares --------------------------------- */
+
+.footer__link {
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.footer__link:hover,
+.footer__link[aria-current='page'] {
+  color: var(--text);
+}
+
+/* minmax(0, 1fr): a wide table scrolls inside its own box instead of widening the page. */
+.providers {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.provider {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.provider__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+
+.provider__name {
+  margin: 0;
+  font-size: var(--fs-title);
+}
+
+.provider__role {
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  margin-right: auto;
+}
+
+.provider__note {
+  margin: var(--space-1) 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  max-width: 46ch;
+}
+
+.provider__table th,
+.provider__table td {
+  white-space: normal;
+}
+
+.scroll-x {
+  overflow-x: auto;
+}
+
+/* The state word is always printed; color only reinforces it. */
+.pstate {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 16px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.pstate[data-pstate='LIVE'] {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.pstate[data-pstate='DELAYED'],
+.pstate[data-pstate='CALCULATED'] {
+  color: var(--text);
+  border-color: var(--green-muted);
+}
+
+.pstate[data-pstate='CACHED'],
+.pstate[data-pstate='STALE'],
+.pstate[data-pstate='RATE LIMITED'],
+.pstate[data-pstate='CONFIGURED — NOT VERIFIED'] {
+  color: var(--caution);
+  border-color: var(--caution);
+}
+
+.pstate[data-pstate='ERROR'] {
+  color: var(--down);
+  border-color: var(--down);
+}
+
+.pstate[data-pstate='ENV NOT CONNECTED'],
+.pstate[data-pstate='UNAVAILABLE'] {
+  color: var(--text-2);
+}
+
+/* ---- several modules under one Macro tab ------------------------------------------------- */
+
+.macro__stack {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* ---- event-proximity waves: static, so nothing moves and nothing needs a motion setting ---- */
+
+.waves {
+  display: grid;
+  gap: 0;
+}
+
+.wave {
+  border-top: 1px solid var(--border);
+}
+
+.wave__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  cursor: pointer;
+}
+
+.wave__svg {
+  flex: none;
+}
+
+/* The muted green is verified as a graphic (3:1), never as text, so it is set as a stroke. */
+.wave__line {
+  stroke: var(--green-muted);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.wave__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.wave__title {
+  overflow-wrap: anywhere;
+}
+
+.wave__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
+  color: var(--text-2);
+  font-size: var(--fs-small);
+}
+
+.wave__countdown {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.wave__body {
+  padding: 0 0 var(--space-3) calc(120px + var(--space-3));
+}
+
+.field--inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.forex__notices {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.forex__notices:not(:empty) {
+  margin-bottom: var(--space-2);
+}

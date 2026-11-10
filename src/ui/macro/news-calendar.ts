@@ -2,22 +2,25 @@ import type { AppContext } from '../../app/context.js';
 import { formatUtcDate, formatUtcDateTime, formatZoned } from '../../core/format.js';
 import { createKeyedResource, type Loadable } from '../../core/resource.js';
 import { safeHttpUrl } from '../../core/url.js';
-import {
-  screenCalendar,
-  screenNews,
-  type ScreenOptions,
-  type Screened,
-} from '../../data/macro-validate.js';
+import { screenCalendar, screenNews, type ScreenOptions } from '../../data/macro-validate.js';
 import type {
   CalendarEvent,
+  FeedOrigin,
   FeedResult,
   ImpactClassification,
   NewsItem,
   SourceAttribution,
 } from '../../data/macro.js';
 import { createScope, h, replaceContent, type Child, type View } from '../dom.js';
-import { createPanel, notice } from '../parts.js';
-import { failedBlock, loadingNotice, noSourceBlock } from './states.js';
+import { createPanel } from '../parts.js';
+import {
+  attributionLine,
+  failedBlock,
+  loadingNotice,
+  originNotices,
+  screeningNotices,
+  unavailableBlock,
+} from './states.js';
 
 const DAY_MS = 86_400_000;
 export const CALENDAR_WINDOW_DAYS = 7;
@@ -123,7 +126,37 @@ function figures(event: CalendarEvent): HTMLElement {
     ...(present.length === 0
       ? [h('span', { text: 'No figures published yet' })]
       : present.map(([label, value]) => h('span', {}, `${label} `, h('b', { text: value })))),
+    event.surprise === undefined
+      ? null
+      : h('span', {
+          text:
+            `Surprise ${event.surprise.value > 0 ? '+' : ''}${event.surprise.value} ${event.surprise.unit} ` +
+            `(${event.surprise.basis}) · CALCULATED`,
+          attrs: { title: 'Computed by Elstand from two figures the source supplied.' },
+        }),
   );
+}
+
+const STATUS_LABEL: Readonly<Record<NonNullable<CalendarEvent['status']>, string>> = {
+  scheduled: 'SCHEDULED',
+  estimated: 'ESTIMATED',
+  released: 'RELEASED',
+  rescheduled: 'RESCHEDULED',
+  cancelled: 'CANCELLED',
+};
+
+/** A date-only event has no time to show: its stored instant is a placeholder, never displayed. */
+function eventTime(event: CalendarEvent, zone: string): HTMLElement {
+  if (event.timePrecision === 'date') {
+    return h('time', {
+      text: `${formatUtcDate(event.timeMs)} · time not stated`,
+      attrs: { datetime: formatUtcDate(event.timeMs) },
+    });
+  }
+  return h('time', {
+    text: formatZoned(event.timeMs, zone),
+    attrs: { datetime: new Date(event.timeMs).toISOString() },
+  });
 }
 
 export function calendarItem(event: CalendarEvent, zone: string): HTMLElement {
@@ -133,14 +166,18 @@ export function calendarItem(event: CalendarEvent, zone: string): HTMLElement {
     h(
       'div',
       { class: 'feed__meta' },
-      h('time', {
-        text: formatZoned(event.timeMs, zone),
-        attrs: { datetime: new Date(event.timeMs).toISOString() },
-      }),
+      eventTime(event, zone),
       h('span', {
         text: event.country === null ? event.currency : `${event.currency} · ${event.country}`,
       }),
       ...impactBadge(event.impact),
+      event.status === undefined
+        ? null
+        : h('span', {
+            text: STATUS_LABEL[event.status],
+            attrs: { title: 'The schedule status the source states.' },
+          }),
+      event.stage === undefined ? null : h('span', { text: event.stage }),
     ),
     h('h4', { class: 'feed__title', text: event.title }),
     figures(event),
@@ -176,36 +213,38 @@ export function newsItem(item: NewsItem, zone: string): HTMLElement {
             attrs: { href: link, target: '_blank', rel: 'noopener noreferrer' },
           }),
     ),
+    item.publisher === undefined && item.providerSentiment === undefined
+      ? null
+      : h(
+          'div',
+          { class: 'feed__meta' },
+          item.publisher === undefined ? null : h('span', { text: `via ${item.publisher}` }),
+          item.providerSentiment === undefined
+            ? null
+            : h('span', {
+                text:
+                  `Provider sentiment ${item.providerSentiment.score > 0 ? '+' : ''}${item.providerSentiment.score} ` +
+                  `(${item.providerSentiment.basis})`,
+                attrs: {
+                  title:
+                    'The provider’s own number. It is not an Elstand score and not a prediction.',
+                },
+              }),
+        ),
     sourceLine(item.source),
     interpretation(item.elvoidInterpretation),
   );
 }
 
-function screeningNotices<T>(screened: Screened<T>): HTMLElement[] {
-  const notices: HTMLElement[] = [];
-  const first = screened.rejected[0];
-  if (first !== undefined) {
-    notices.push(
-      notice(
-        'caution',
-        'ITEMS REJECTED',
-        `${screened.rejected.length} item${screened.rejected.length === 1 ? ' was' : 's were'} not shown ` +
-          `because ${screened.rejected.length === 1 ? 'it was' : 'they were'} unattributed or malformed. ` +
-          `First: ${first.id} ${first.reason}.`,
-      ),
-    );
-  }
-  if (screened.interpretationsRemoved > 0) {
-    notices.push(
-      notice(
-        'caution',
-        'INTERPRETATION REMOVED',
-        `${screened.interpretationsRemoved} ELVOID interpretation${screened.interpretationsRemoved === 1 ? ' was' : 's were'} ` +
-          'removed. No ELVOID engine is connected, and only an engine may supply one.',
-      ),
-    );
-  }
-  return notices;
+/** "as of <time>", with the state the provider reported when the feed says one. */
+function metaText(asOf: number, origin: FeedOrigin | undefined): string {
+  const base = `as of ${formatUtcDateTime(asOf)}`;
+  return origin === undefined ? base : `${base} · ${origin.provenance.state}`;
+}
+
+function attributionItems(origin: FeedOrigin | undefined): HTMLElement[] {
+  const line = attributionLine(origin);
+  return line === null ? [] : [h('div', { class: 'feed__item' }, line)];
 }
 
 function matchesCurrency(currencies: readonly string[], selected: string): boolean {
@@ -344,7 +383,16 @@ export function createNewsCalendarModule(ctx: AppContext): View {
         const result = calendar.value;
         if (result.status === 'unavailable') {
           replaceContent(calendarHost, [
-            h('div', { class: 'feed__item' }, noSourceBlock('A calendar provider', result.reason)),
+            h(
+              'div',
+              { class: 'feed__item' },
+              unavailableBlock({
+                source: 'A calendar provider',
+                reason: result.reason,
+                origin: result.origin,
+                onRetry: () => calendarResource.reload(CALENDAR_KEY),
+              }),
+            ),
           ]);
           return;
         }
@@ -352,8 +400,9 @@ export function createNewsCalendarModule(ctx: AppContext): View {
         const shown = screened.items
           .filter((event) => matchesCurrency([event.currency], currency))
           .sort((a, b) => a.timeMs - b.timeMs || a.id.localeCompare(b.id));
-        calendarMeta.textContent = `as of ${formatUtcDateTime(result.asOf)}`;
+        calendarMeta.textContent = metaText(result.asOf, result.origin);
         replaceContent(calendarHost, [
+          ...originNotices(result.origin).map((entry) => h('div', { class: 'feed__item' }, entry)),
           ...screeningNotices(screened).map((entry) => h('div', { class: 'feed__item' }, entry)),
           ...(shown.length === 0
             ? [
@@ -370,6 +419,7 @@ export function createNewsCalendarModule(ctx: AppContext): View {
                 ),
               ]
             : shown.map((event) => calendarItem(event, zone))),
+          ...attributionItems(result.origin),
         ]);
       }
     }
@@ -397,7 +447,16 @@ export function createNewsCalendarModule(ctx: AppContext): View {
         const result = news.value;
         if (result.status === 'unavailable') {
           replaceContent(newsHost, [
-            h('div', { class: 'feed__item' }, noSourceBlock('A news provider', result.reason)),
+            h(
+              'div',
+              { class: 'feed__item' },
+              unavailableBlock({
+                source: 'A news provider',
+                reason: result.reason,
+                origin: result.origin,
+                onRetry: () => newsResource.reload(NEWS_KEY),
+              }),
+            ),
           ]);
           return;
         }
@@ -405,8 +464,9 @@ export function createNewsCalendarModule(ctx: AppContext): View {
         const shown = screened.items
           .filter((item) => matchesCurrency(item.currencies, currency))
           .sort((a, b) => b.publishedAt - a.publishedAt || a.id.localeCompare(b.id));
-        newsMeta.textContent = `as of ${formatUtcDateTime(result.asOf)}`;
+        newsMeta.textContent = metaText(result.asOf, result.origin);
         replaceContent(newsHost, [
+          ...originNotices(result.origin).map((entry) => h('div', { class: 'feed__item' }, entry)),
           ...screeningNotices(screened).map((entry) => h('div', { class: 'feed__item' }, entry)),
           ...(shown.length === 0
             ? [
@@ -423,6 +483,7 @@ export function createNewsCalendarModule(ctx: AppContext): View {
                 ),
               ]
             : shown.map((item) => newsItem(item, zone))),
+          ...attributionItems(result.origin),
         ]);
       }
     }

@@ -96,6 +96,13 @@ export type AuthenticationResult = (typeof AUTHENTICATION_RESULTS)[number];
 /** What a user-initiated request to one provider found. A fact about one moment, not a status. */
 export interface WireProbe {
   readonly provider: ProviderId;
+  /**
+   * The one capability the check exercised. A check is one real request, so it says nothing about
+   * a provider's other capabilities, and the provider page never applies it to them.
+   */
+  readonly capability: Capability;
+  /** The endpoint the request went to, as the data responses name it. */
+  readonly endpoint: string;
   readonly state: ProviderState;
   readonly authentication: AuthenticationResult;
   /** True only when the answer parsed and passed validation. */
@@ -196,8 +203,10 @@ export function parseProbe(input: unknown): Parsed<WireProbe> {
   const bad = (reason: string): Parsed<WireProbe> => ({ ok: false, error: reason });
   if (!isRecord(input)) return bad('the probe result is not an object');
   const { provider, state, authentication, dataRetrieved, message, attemptedAt } = input;
-  const { retrievedAt, dataAsOf } = input;
+  const { retrievedAt, dataAsOf, capability, endpoint } = input;
   if (!isProviderId(provider)) return bad('the probe names an unknown provider');
+  if (!isCapability(capability)) return bad('the probe names an unknown capability');
+  if (!isText(endpoint)) return bad('the probe does not name its endpoint');
   if (!isProviderState(state)) return bad('the probe has an unknown state');
   if (!oneOf(AUTHENTICATION_RESULTS, authentication)) {
     return bad('the probe has an unknown authentication result');
@@ -213,6 +222,8 @@ export function parseProbe(input: unknown): Parsed<WireProbe> {
     ok: true,
     value: {
       provider,
+      capability,
+      endpoint,
       state,
       authentication,
       dataRetrieved,

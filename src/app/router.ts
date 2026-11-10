@@ -15,7 +15,9 @@ export const DEFAULT_TIMEFRAME: Timeframe = 'H1';
 
 export type Route =
   | { readonly page: 'forex'; readonly instrumentId: string; readonly timeframe: Timeframe }
-  | { readonly page: 'macro'; readonly tab: MacroTab };
+  | { readonly page: 'macro'; readonly tab: MacroTab }
+  /** The provider status page. It is reached from the footer, not from the navigation. */
+  | { readonly page: 'providers' };
 
 export const DEFAULT_ROUTE: Route = {
   page: 'forex',
@@ -28,7 +30,7 @@ function isMacroTab(value: string | undefined): value is MacroTab {
 }
 
 /**
- * Hash routes: `#/forex/EURUSD/H1` and `#/macro/vol-surface`. Parsing never fails: anything
+ * Hash routes: `#/forex/EURUSD/H1`, `#/macro/vol-surface` and `#/providers`. Parsing never fails: anything
  * unknown falls back to a valid route, and the router rewrites the address bar to match, so a
  * stale or hand-edited link can never leave the interface in an undefined state.
  */
@@ -51,6 +53,7 @@ export function parseHash(hash: string): Route {
     const tab = first?.toLowerCase();
     return { page: 'macro', tab: isMacroTab(tab) ? tab : 'vol-surface' };
   }
+  if (page?.toLowerCase() === 'providers') return { page: 'providers' };
   if (page?.toLowerCase() === 'forex') {
     const timeframe = second?.toUpperCase();
     return {
@@ -64,9 +67,14 @@ export function parseHash(hash: string): Route {
 }
 
 export function formatRoute(route: Route): string {
-  return route.page === 'forex'
-    ? `#/forex/${route.instrumentId}/${route.timeframe}`
-    : `#/macro/${route.tab}`;
+  switch (route.page) {
+    case 'forex':
+      return `#/forex/${route.instrumentId}/${route.timeframe}`;
+    case 'macro':
+      return `#/macro/${route.tab}`;
+    case 'providers':
+      return '#/providers';
+  }
 }
 
 export interface Router {

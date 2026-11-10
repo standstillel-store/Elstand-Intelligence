@@ -97,21 +97,14 @@ const ENV_REGIONS: readonly {
     hash: '#/macro/bubbles',
     scope: '#bubbles-panel',
     detail: 'A macro-series provider is not connected.',
-    note: /No macro-series adapter exists in this build/,
-  },
-  {
-    name: 'economic calendar',
-    hash: '#/macro/news-calendar',
-    scope: '#calendar-panel',
-    detail: 'A calendar provider is not connected.',
-    note: /No macro-data adapter exists in this build/,
+    note: /^ENV NOT CONNECTED — FRED_API_KEY is missing\. Macro observations from FRED are unavailable\.$/,
   },
   {
     name: 'news',
     hash: '#/macro/news-calendar',
     scope: '#news-panel',
     detail: 'A news provider is not connected.',
-    note: /No macro-data adapter exists in this build/,
+    note: /^ENV NOT CONNECTED — MARKETAUX_API_KEY is missing\. Financial news from Marketaux is unavailable\.$/,
   },
 ];
 
@@ -493,6 +486,20 @@ describe('no env: every data region says ENV NOT CONNECTION', () => {
     });
   }
 
+  it('economic calendar: needs no credential, so it is asked, and with no network it says ERROR in words', async () => {
+    await withPage('#/macro/news-calendar', async ({ page }) => {
+      const panel = page.locator('#calendar-panel');
+      await panel.getByText('ERROR — Could not reach Finance Calendar.').waitFor();
+      assert.equal(
+        await panel.locator('.env-block').count(),
+        0,
+        'a provider that needs no key is never reported as not connected for want of one',
+      );
+      assert.equal(await panel.locator('article').count(), 0, 'no event is listed');
+      assert.equal(await panel.getByRole('button', { name: 'Retry' }).isVisible(), true);
+    });
+  });
+
   it('offers Check connection only where an environment variable is the missing piece', async () => {
     await withPage(FOREX, async ({ page }) => {
       for (const scope of ['#chart-panel', '.wl', '#depth-panel']) {
@@ -553,7 +560,7 @@ describe('no env: every data region says ENV NOT CONNECTION', () => {
     });
   });
 
-  it('draws and loads nothing on any route: no request except the page, its assets and /api/status', async () => {
+  it('asks only this origin: the page, its assets, /api/status, and on the macro routes the capability endpoints', async () => {
     await withPage(FOREX, async ({ page, requested }) => {
       for (const route of ROUTES.slice(1)) {
         await page.evaluate((hash) => {
@@ -573,8 +580,21 @@ describe('no env: every data region says ENV NOT CONNECTION', () => {
         'every request stayed on this origin',
       );
       const paths = requested.map((url) => new URL(url).pathname);
+      // The macro modules ask the Elstand server, which answers for itself (a provider that needs
+      // no key is asked there, a provider that needs one says ENV NOT CONNECTED there).
+      const capabilityPaths = [
+        '/api/calendar',
+        '/api/news',
+        '/api/macro',
+        '/api/bubbles',
+        '/api/rates',
+      ];
       const allowed = paths.filter(
-        (path) => path === '/' || path.startsWith('/assets/') || path === '/api/status',
+        (path) =>
+          path === '/' ||
+          path.startsWith('/assets/') ||
+          path === '/api/status' ||
+          capabilityPaths.includes(path),
       );
       assert.deepEqual(
         paths,
@@ -586,10 +606,10 @@ describe('no env: every data region says ENV NOT CONNECTION', () => {
         1,
         'the connection is checked once, not on every route',
       );
-      assert.equal(
-        paths.filter((path) => path.startsWith('/api/')).length,
-        1,
-        'no quote, candle or depth request',
+      assert.deepEqual(
+        paths.filter((path) => /^\/api\/(?:quotes|candles|depth)/.test(path)),
+        [],
+        'with no key, no quote, candle or depth request is made on any route',
       );
     });
   });
@@ -1227,7 +1247,28 @@ describe('no env: no simulated or sample data anywhere', () => {
         assert.equal(await inkPixels(page, '.chart__canvas'), 0);
         assert.equal(await inkPixels(page, SURFACE_CANVAS), 0);
         assert.equal(await page.locator('canvas:visible').count(), 0, 'no canvas is on screen');
-        assert.equal(await page.locator('table:visible').count(), 0, 'no table is on screen');
+        // The macro observations list the series of providers that need no key, each with the
+        // state the server gave it. With no network every row says why it has no value.
+        const rows = await page.locator('table:visible tbody tr').evaluateAll((nodes) =>
+          nodes.map((node) => ({
+            text: (node as HTMLElement).innerText.replace(/\s+/g, ' ').trim(),
+            values: Array.from(node.querySelectorAll('td.num')).map((cell) =>
+              (cell.textContent ?? '').trim(),
+            ),
+          })),
+        );
+        for (const row of rows) {
+          assert.deepEqual(
+            row.values.filter((value) => value !== '' && value !== NO_VALUE),
+            [],
+            `a row shows no value: ${row.text}`,
+          );
+          assert.match(
+            row.text,
+            /\b(?:ERROR|UNAVAILABLE|ENV NOT CONNECTED|RATE LIMITED)\b/,
+            `a row without a value says why: ${row.text}`,
+          );
+        }
       });
     });
   }
@@ -1271,7 +1312,33 @@ describe('no env: the server', () => {
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type') ?? '', /^application\/json/);
     assert.equal(response.headers.get('cache-control'), 'no-store');
-    assert.deepEqual(await response.json(), { connected: false, missing: ['TWELVE_DATA_API_KEY'] });
+    const body = (await response.json()) as {
+      connected: boolean;
+      missing: string[];
+      providers: { id: string; config: string; keyed: boolean }[];
+    };
+    assert.equal(body.connected, false);
+    assert.deepEqual(body.missing, ['TWELVE_DATA_API_KEY']);
+    assert.deepEqual(
+      body.providers.map((provider) => `${provider.id}:${provider.config}`).sort(),
+      [
+        'alphavantage:env-not-connected',
+        'bea:env-not-connected',
+        'bls:ready',
+        'financecalendar:ready',
+        'frankfurter:ready',
+        'fred:env-not-connected',
+        'imf:no-endpoint',
+        'marketaux:env-not-connected',
+        'twelvedata:env-not-connected',
+        'worldbank:ready',
+      ],
+      'ten providers; ready means only that a request may be sent, never that one succeeded',
+    );
+    assert.ok(
+      body.providers.every((provider) => provider.keyed === false),
+      'with no environment no credential is in use',
+    );
   });
 
   it('/api/quotes and /api/candles refuse with 503 not_connected and say what to set', async () => {

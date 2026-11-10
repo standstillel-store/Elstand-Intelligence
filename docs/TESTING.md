@@ -6,10 +6,10 @@ linter, the generated-docs check, the formatting check, the unit tests and the b
 ## Why fixtures exist, and why they cannot reach the product
 
 Elstand ships no simulated or sample data. But some code can only be exercised with a datum in hand:
-validation, rendering, the connected data path, and the available states of modules (depth, the
-volatility surface, the bubbles, news and calendar, an ELVOID result) that have no real provider in
-Phase 1. Tests therefore use **test-only fixtures and a stand-in for the vendor**, and the rules
-below keep them out of the product:
+validation, rendering, the connected data path, and the available states of modules that have no
+real provider (depth, the volatility surface) or whose provider a test cannot reach (the bubbles,
+news and calendar, Surface VI, an ELVOID result). Tests therefore use **test-only fixtures and a
+stand-in for the vendor**, and the rules below keep them out of the product:
 
 - They live under `tests/`, are deterministic (no randomness, a fixed clock `FIXTURE_NOW`, 2026-01-06
   12:00 UTC), and say so: `tests/support/fixtures.ts` opens with "TEST FIXTURES. NOT MARKET DATA."
@@ -29,21 +29,22 @@ below keep them out of the product:
 TypeScript run by Node's type stripping, with `scripts/register-ts.mjs` resolving the `.js` import
 specifiers to `.ts` files.
 
-| Area                                                                                                                                                       | Files                                                                                                                                 |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Core rules: freshness, formatting, instruments, URLs, stores, resources, ticks                                                                             | `core.test.ts`, `store-resource.test.ts`                                                                                              |
-| Provider contracts and validation, the wire format                                                                                                         | `data.test.ts`, `wire.test.ts`                                                                                                        |
-| Server: handlers, status, caching, secrets never in a response, the Twelve Data adapter                                                                    | `server-handlers.test.ts`, `server-twelvedata.test.ts`                                                                                |
-| Providers: request budgets, retry, caching, the shared HTTP helper, the registry, cache policy, and every adapter against the response shapes it documents | `provider-framework.test.ts`, `provider-registry.test.ts`, `provider-adapters.test.ts`                                                |
-| Service layer: failure wording, fallback rules, derived-data states, the capability endpoints and the provider page                                        | `service-layer.test.ts`, `forex-service.test.ts`, `macro-service.test.ts`, `capability-handlers.test.ts`                              |
-| Application state: connection classification, feeds, routing, polling                                                                                      | `connection.test.ts`, `feeds.test.ts`, `router-polling.test.ts`                                                                       |
-| Chart: model, geometry, rendering against a recording canvas                                                                                               | `chart-model.test.ts`, `chart-geometry.test.ts`, `chart-renderer.test.ts`                                                             |
-| Depth arithmetic and formatting                                                                                                                            | `depth-format.test.ts`                                                                                                                |
-| Macro: data contracts and screening, 3D projection, surface drawing, color ramp, bubble layout                                                             | `macro-data.test.ts`, `macro-projection.test.ts`, `macro-surface-render.test.ts`, `macro-ramp.test.ts`, `macro-bubble-layout.test.ts` |
-| ELVOID: contracts, validator, status machine, controller, improvement lifecycle, registry                                                                  | `elvoid.test.ts`                                                                                                                      |
-| Design rules read from the real stylesheets: palette, neon allowlist, contrast, no gradients, animation or blur                                            | `design-tokens.test.ts`, `contrast.test.ts`                                                                                           |
-| Build and policy: the guards, real builds, every lint rule, and the real repository                                                                        | `guards.test.ts`, `build.test.ts`, `lint-policy.test.ts`                                                                              |
-| Documentation does not drift from the code                                                                                                                 | `docs.test.ts`                                                                                                                        |
+| Area                                                                                                                                                                             | Files                                                                                                                                                                              |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Core rules: freshness, formatting, instruments, URLs, stores, resources, ticks                                                                                                   | `core.test.ts`, `store-resource.test.ts`                                                                                                                                           |
+| Provider contracts and validation, the wire format                                                                                                                               | `data.test.ts`, `wire.test.ts`                                                                                                                                                     |
+| Server: handlers, status, caching, secrets never in a response, the Twelve Data adapter                                                                                          | `server-handlers.test.ts`, `server-twelvedata.test.ts`                                                                                                                             |
+| Providers: request budgets, retry, caching, the shared HTTP helper, the registry, cache policy, and every adapter against the response shapes it documents                       | `provider-framework.test.ts`, `provider-registry.test.ts`, `provider-adapters.test.ts`                                                                                             |
+| Service layer: failure wording, fallback rules, derived-data states, the capability endpoints and the provider page                                                              | `service-layer.test.ts`, `forex-service.test.ts`, `macro-service.test.ts`, `capability-handlers.test.ts`                                                                           |
+| Application state: connection classification, feeds, routing, polling                                                                                                            | `connection.test.ts`, `feeds.test.ts`, `router-polling.test.ts`                                                                                                                    |
+| Chart: model, geometry, rendering against a recording canvas                                                                                                                     | `chart-model.test.ts`, `chart-geometry.test.ts`, `chart-renderer.test.ts`                                                                                                          |
+| Depth arithmetic and formatting                                                                                                                                                  | `depth-format.test.ts`                                                                                                                                                             |
+| Macro: data contracts and screening, the browser's reading of the macro endpoints, 3D projection, surface drawing, color ramp, bubble layout, Surface VI proximity and countdown | `macro-data.test.ts`, `http-macro.test.ts`, `macro-projection.test.ts`, `macro-surface-render.test.ts`, `macro-ramp.test.ts`, `macro-bubble-layout.test.ts`, `event-waves.test.ts` |
+| Provider status: the ledger of what was really retrieved, the rows of the provider page, one honest state per capability and endpoint                                            | `provider-status.test.ts`                                                                                                                                                          |
+| ELVOID: contracts, validator, status machine, controller, improvement lifecycle, registry                                                                                        | `elvoid.test.ts`                                                                                                                                                                   |
+| Design rules read from the real stylesheets: palette, neon allowlist, contrast, no gradients, animation or blur                                                                  | `design-tokens.test.ts`, `contrast.test.ts`                                                                                                                                        |
+| Build and policy: the guards, real builds, every lint rule, and the real repository                                                                                              | `guards.test.ts`, `build.test.ts`, `lint-policy.test.ts`                                                                                                                           |
+| Documentation does not drift from the code                                                                                                                                       | `docs.test.ts`                                                                                                                                                                     |
 
 Support code is in `tests/support/`: the fixtures, a stand-in for the vendor's HTTP API built from its
 published response shapes (`fake-vendor.ts`), a recording canvas (`fake-canvas.ts`), a `fetch` that
@@ -69,8 +70,16 @@ Chromium, one test file at a time. Run `npm run build` first if you run a file d
   watchlist, pan, zoom, the crosshair and keyboard control, the data table, loading and failure with
   a Retry, a provider that rejects the key, staleness and a closed market, and layout from desktop
   to phone.
+- `providers.test.ts` opens the provider status page with no environment and with Twelve Data
+  configured against the stand-in vendor: the ten providers by name, configuration shown by
+  variable name only, a variable that exists shown as CONFIGURED — NOT VERIFIED until a real request
+  has been answered, a check that makes exactly one request, IMF shown as UNAVAILABLE, and no
+  credential anywhere in the page.
 - `component-*.test.ts` mount the application with fixtures for a module that has no real provider
-  yet (depth, the volatility surface, the bubbles, news and calendar, ELVOID). The harness
+  or whose provider a test cannot reach (depth, the volatility surface, the bubbles, news and
+  calendar, Surface VI, ELVOID). `component-event-waves.test.ts` covers Surface VI: the waves drawn
+  only for the events the calendar rated high, the countdown moving with the clock, the details a
+  source gave and only those, the exact words with no calendar, and the phone layout. The harness
   (`tests/e2e/support/component.ts`) builds a **test-only bundle into a temporary directory**, with the
   production content guards off and the secret scan still on, and serves it with the same headers.
   The product's own `dist/` never contains it.
@@ -92,14 +101,22 @@ directory use `mkdtemp` under the operating system's temporary directory.
 
 ## What the tests do not cover
 
-Said plainly, so a green run is not read as more than it is:
+Said plainly, so a green run is not read as more than it is. **Passing tests that replace the
+network do not prove that a live API integration works.**
 
-- **The live Twelve Data API.** The adapter is verified against the response shapes in the vendor's
-  documentation through a stand-in. The first-connection checklist in
-  [ENVIRONMENT.md](ENVIRONMENT.md#first-connection-checklist) is the real test.
-- **Vercel.** Nothing has been deployed. The static build, the headers and the handlers are tested
-  locally through one shared server. Vercel's packaging of the `api/` functions is not.
-- **Real depth, options, macro, news or calendar data**, which have no provider in Phase 1.
+- **Live provider APIs.** Twelve Data was checked against its live API from the production deployment,
+  by hand, following the first-connection checklist in
+  [ENVIRONMENT.md](ENVIRONMENT.md#first-connection-checklist). Every other adapter is verified only
+  against the response shapes its provider documents, through a stand-in. Alpha Vantage, FRED,
+  Marketaux and the BEA need a key that was not available when they were written; Finance Calendar,
+  Frankfurter, the World Bank and the BLS need none, but the development environment cannot reach
+  their hosts. Each provider's status is in [ENVIRONMENT.md](ENVIRONMENT.md#providers).
+- **Provider accounting.** The request budgets are Elstand's own counts, tested against a clock. They
+  are not compared with a provider's counter, and each server instance keeps its own.
+- **Vercel.** The static build, the headers and the handlers are tested locally through one shared
+  server. Vercel's packaging of the `api/` functions is proved only by the platform's build and a
+  request to the deployment, which no test here can make.
+- **Real depth or options data**, which have no provider.
 - **Browsers other than Chromium**, and any screen reader. See the accessibility notes in
   [DESIGN.md](DESIGN.md#accessibility).
 - **Visual regression and performance.** Layout and behavior are asserted; pixels and frame times

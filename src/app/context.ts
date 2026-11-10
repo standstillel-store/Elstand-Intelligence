@@ -5,7 +5,16 @@ import type { DataState, SourceInfo, Timeframe } from '../core/types.js';
 import { createUnconfiguredBubbleProvider, type BubbleProvider } from '../data/macro-bubbles.js';
 import { createUnconfiguredMacroFeed, type MacroFeedProvider } from '../data/macro.js';
 import { createUnconfiguredSurfaceProvider, type VolSurfaceProvider } from '../data/options.js';
+import { createApiClient } from '../data/api-client.js';
 import type { DepthResult } from '../data/depth.js';
+import {
+  createHttpBubbleProvider,
+  createHttpMacroFeed,
+  createHttpObservations,
+  type ObservationsProvider,
+} from '../data/http-macro.js';
+import { createProvidersApi, type ProvidersApi } from '../data/http-providers.js';
+import { candlesSubject, quoteSubject, type Provenance } from '../data/provenance.js';
 import type { CandleSeries } from '../data/provider.js';
 import type { QuoteBook } from '../data/service.js';
 import type { ElvoidEngine } from '../elvoid/contracts.js';
@@ -13,6 +22,7 @@ import { createAnalysisController, type AnalysisController } from '../elvoid/con
 import { createClock, type Clock } from './clock.js';
 import { createConnection, type Connection } from './connection.js';
 import { createFeed, type Feed } from './feeds.js';
+import { createProviderLedger, type ProviderLedger } from './provider-ledger.js';
 import { startPolling } from './polling.js';
 import { createRouter, DEFAULT_TIMEFRAME, type Route, type Router } from './router.js';
 import { quoteView, seriesView, type QuoteView, type SeriesView } from './selectors.js';
@@ -38,14 +48,23 @@ export interface AppEnvironment {
    */
   readonly elvoidEngine?: ElvoidEngine;
   /**
-   * Providers for the macro modules. Phase 1 has no options, macro-series, calendar or news
-   * adapter, so production leaves these unset and each module reports ENV NOT CONNECTION.
+   * Providers for the macro modules, for tests. Production leaves this unset and the context
+   * builds providers that ask the Elstand server. When it is set, a provider left out stays
+   * unconfigured (the module says ENV NOT CONNECTION), so a test never reaches a server it did
+   * not ask for. There is no options-data adapter, so the surface is unconfigured either way.
    */
   readonly macro?: {
     readonly surface?: VolSurfaceProvider;
     readonly feed?: MacroFeedProvider;
     readonly bubbles?: BubbleProvider;
+    readonly observations?: ObservationsProvider;
   };
+}
+
+/** The provenance the server sent with the quote and the candles of the selected chart. */
+export interface SelectedProvenance {
+  readonly quote: Provenance | null;
+  readonly candles: Provenance | null;
 }
 
 /** Everything the screens share. Screens read from here and never build their own data paths. */
@@ -76,7 +95,15 @@ export interface AppContext {
     readonly surface: VolSurfaceProvider;
     readonly feed: MacroFeedProvider;
     readonly bubbles: BubbleProvider;
+    /** Macro observations and reference rates. Null when a test supplied macro providers without it. */
+    readonly observations: ObservationsProvider | null;
   };
+  /** What this browser has seen from each provider: statements the server made, never data. */
+  readonly ledger: ProviderLedger;
+  /** The provenance of the quote and candles on screen, when the server sent it. */
+  readonly provenance: ReadableStore<SelectedProvenance>;
+  /** The provider configuration, and the check a person can ask for. */
+  readonly providersApi: ProvidersApi;
   dispose(): void;
 }
 
@@ -103,8 +130,19 @@ export function createAppContext(env: AppEnvironment): AppContext {
   );
   const router = createRouter(win);
   const ownsConnection = env.connection === undefined;
-  const connection = env.connection ?? createConnection({ fetch: env.fetch, now });
+  const api = createApiClient(env.fetch);
+  const ledger = createProviderLedger();
+  const connection =
+    env.connection ??
+    createConnection({
+      fetch: env.fetch,
+      now,
+      onProvenance: (provenance, attemptedAt, subject) =>
+        ledger.record(provenance, attemptedAt, subject),
+    });
   const autoRefresh = createStore(true);
+  const macroHttp = { client: api, record: ledger.record, now };
+  const injectedMacro = env.macro !== undefined;
 
   const selection = createStore<Selection>(selectionFrom(router.route.get()));
   const stopSelection = router.route.subscribe((route) => {
@@ -160,6 +198,15 @@ export function createAppContext(env: AppEnvironment): AppContext {
   );
   const selectedState = derived([selectedQuote, selectedSeries], (quote, series) =>
     worstState([quote.state, series.state]),
+  );
+  const provenance = derived(
+    [ledger.store, selection],
+    (snapshot, current): SelectedProvenance => ({
+      quote: snapshot.subjects.get(quoteSubject(current.instrumentId)) ?? null,
+      candles:
+        snapshot.subjects.get(candlesSubject(current.instrumentId, current.timeframe)) ?? null,
+    }),
+    (a, b) => a.quote === b.quote && a.candles === b.candles,
   );
 
   // Without an engine (Phase 1) this only keeps ELVOID's status and inputs current.
@@ -222,15 +269,25 @@ export function createAppContext(env: AppEnvironment): AppContext {
     elvoid,
     macro: {
       surface: env.macro?.surface ?? createUnconfiguredSurfaceProvider(),
-      feed: env.macro?.feed ?? createUnconfiguredMacroFeed(),
-      bubbles: env.macro?.bubbles ?? createUnconfiguredBubbleProvider(),
+      feed:
+        env.macro?.feed ??
+        (injectedMacro ? createUnconfiguredMacroFeed() : createHttpMacroFeed(macroHttp)),
+      bubbles:
+        env.macro?.bubbles ??
+        (injectedMacro ? createUnconfiguredBubbleProvider() : createHttpBubbleProvider(macroHttp)),
+      observations:
+        env.macro?.observations ?? (injectedMacro ? null : createHttpObservations(macroHttp)),
     },
+    ledger,
+    provenance,
+    providersApi: createProvidersApi(api),
     dispose() {
       stopPolling?.();
       stopConnectionWatch();
       stopElvoid();
       stopSelection();
       for (const store of [
+        provenance,
         selectedState,
         selectedSeries,
         selectedQuote,

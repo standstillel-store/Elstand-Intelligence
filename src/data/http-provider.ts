@@ -1,8 +1,10 @@
 import type { SourceInfo } from '../core/types.js';
 import type { Candle } from '../core/types.js';
 import { ApiClientError, type ApiClient } from './api-client.js';
+import { candlesSubject, quoteSubject, type Provenance } from './provenance.js';
 import type { CandleSeries, MarketDataProvider, QuoteBatch } from './provider.js';
 import { API_CANDLES_PATH, API_QUOTES_PATH, parseCandles, parseQuotes } from './wire.js';
+import { parseCandlesProvenance, parseQuotesProvenance } from './wire-providers.js';
 
 export interface HttpProviderOptions {
   readonly client: ApiClient;
@@ -14,6 +16,13 @@ export interface HttpProviderOptions {
    * them. The whole application is then not connected, not merely this one request.
    */
   readonly onNotConnected: (reason: string) => void;
+  /**
+   * Receives the provenance the server attached to an answer, with the time the answer arrived
+   * and the subject it is for (`quote:EURUSD`, `candles:EURUSD:H1`). Provenance is metadata: an
+   * answer without it still yields its data, and nothing is recorded for it.
+   */
+  readonly onProvenance?: (provenance: Provenance, attemptedAt: number, subject: string) => void;
+  readonly now?: () => number;
 }
 
 /**
@@ -23,6 +32,7 @@ export interface HttpProviderOptions {
  */
 export function createHttpProvider(options: HttpProviderOptions): MarketDataProvider {
   const { client } = options;
+  const now = options.now ?? Date.now;
 
   async function guarded<T>(run: () => Promise<T>): Promise<T> {
     try {
@@ -55,6 +65,10 @@ export function createHttpProvider(options: HttpProviderOptions): MarketDataProv
             `The API sent unusable quotes: ${parsed.error}.`,
           );
         }
+        const arrivedAt = now();
+        for (const [id, provenance] of Object.entries(parseQuotesProvenance(body))) {
+          options.onProvenance?.(provenance, arrivedAt, quoteSubject(id));
+        }
         return {
           quotes: parsed.value.quotes,
           failures: new Map(
@@ -77,6 +91,14 @@ export function createHttpProvider(options: HttpProviderOptions): MarketDataProv
           throw new ApiClientError(
             'bad_response',
             `The API sent unusable candles: ${parsed.error}.`,
+          );
+        }
+        const provenance = parseCandlesProvenance(body);
+        if (provenance !== null) {
+          options.onProvenance?.(
+            provenance,
+            now(),
+            candlesSubject(request.instrumentId, request.timeframe),
           );
         }
         const candles: Candle[] = parsed.value.candles.map(([time, open, high, low, close]) => ({

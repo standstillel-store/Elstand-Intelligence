@@ -4,15 +4,33 @@ import { derived } from '../../core/store.js';
 import { bind, setAttr } from '../bind.js';
 import { createScope, h, type View } from '../dom.js';
 import { createBubbleModule } from './bubbles.js';
+import { createEventWavesModule } from './event-waves.js';
 import { createNewsCalendarModule } from './news-calendar.js';
+import { createObservationsModule } from './observations-panel.js';
 import { createVolSurfaceModule } from './vol-surface.js';
+
+/** Several modules under one tab, each keeping its own panel, state and lifetime. */
+function stack(...views: readonly View[]): View {
+  return {
+    el: h('div', { class: 'macro__stack' }, ...views.map((view) => view.el)),
+    dispose: () => {
+      for (const view of views) view.dispose();
+    },
+  };
+}
 
 function createModule(ctx: AppContext, tab: MacroTab): View {
   switch (tab) {
     case 'vol-surface':
-      return createVolSurfaceModule(ctx);
-    case 'bubbles':
-      return createBubbleModule(ctx);
+      // The event-proximity layer needs only the calendar, so it sits with the surface
+      // without waiting for options data.
+      return stack(createVolSurfaceModule(ctx), createEventWavesModule(ctx));
+    case 'bubbles': {
+      const observations = ctx.macro.observations;
+      return observations === null
+        ? createBubbleModule(ctx)
+        : stack(createBubbleModule(ctx), createObservationsModule(ctx, observations));
+    }
     case 'news-calendar':
       return createNewsCalendarModule(ctx);
   }

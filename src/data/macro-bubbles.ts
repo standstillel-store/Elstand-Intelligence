@@ -1,4 +1,4 @@
-import type { SourceAttribution } from './macro.js';
+import type { FeedOrigin, SourceAttribution } from './macro.js';
 
 /**
  * Macro bubble contracts. One bubble is one currency.
@@ -43,8 +43,15 @@ export type BubbleResult =
       readonly points: readonly CurrencyMacroPoint[];
       /** Currencies that are not drawn, each with the reason. Absent when the source gives none. */
       readonly omitted?: readonly BubbleOmission[];
+      /** Which providers supplied the inputs, and in which state. Absent for a test double. */
+      readonly origin?: FeedOrigin;
     }
-  | { readonly status: 'unavailable'; readonly reason: string };
+  | {
+      readonly status: 'unavailable';
+      readonly reason: string;
+      /** The server's own statement of why (ENV NOT CONNECTED, RATE LIMITED, ERROR, …). */
+      readonly origin?: FeedOrigin;
+    };
 
 export interface BubbleProvider {
   readonly label: string;

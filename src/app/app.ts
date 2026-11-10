@@ -2,6 +2,7 @@ import { findInstrument } from '../core/instruments.js';
 import { derived } from '../core/store.js';
 import { createForexPage } from '../ui/forex/page.js';
 import { createMacroPage } from '../ui/macro/page.js';
+import { createProvidersPage } from '../ui/providers/page.js';
 import { bind } from '../ui/bind.js';
 import { createScope, replaceContent, type View } from '../ui/dom.js';
 import { createShell } from '../ui/shell.js';
@@ -28,7 +29,12 @@ export function mountApp(root: HTMLElement, env: AppEnvironment): MountedApp {
   let current: View | null = null;
   bind(scope, page, (kind) => {
     current?.dispose();
-    current = kind === 'forex' ? createForexPage(ctx) : createMacroPage(ctx);
+    current =
+      kind === 'forex'
+        ? createForexPage(ctx)
+        : kind === 'macro'
+          ? createMacroPage(ctx)
+          : createProvidersPage(ctx);
     replaceContent(shell.main, [current.el]);
   });
   scope.add(() => current?.dispose());
@@ -40,7 +46,9 @@ export function mountApp(root: HTMLElement, env: AppEnvironment): MountedApp {
       const title =
         route.page === 'forex'
           ? `${findInstrument(route.instrumentId)?.symbol ?? route.instrumentId} ${route.timeframe} · Forex Intelligence`
-          : `${MACRO_TAB_LABEL[route.tab]} · Macro Intelligence`;
+          : route.page === 'macro'
+            ? `${MACRO_TAB_LABEL[route.tab]} · Macro Intelligence`
+            : 'Provider status';
       env.window.document.title = `${title} · Elstand Intelligence`;
     },
   );

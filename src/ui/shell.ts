@@ -189,6 +189,11 @@ export function createShell(ctx: AppContext): Shell {
     'footer',
     { class: 'footer' },
     h('span', {}, clock, ' · every timestamp is UTC unless it says otherwise'),
+    h('a', {
+      class: 'footer__link',
+      text: 'Provider status',
+      attrs: { href: formatRoute({ page: 'providers' }) },
+    }),
     h('span', {
       text: 'Not investment advice. Elstand shows provider data as received and does not forecast prices.',
     }),

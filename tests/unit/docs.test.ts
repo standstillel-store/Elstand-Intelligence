@@ -7,6 +7,16 @@ import { MODULES_DOC_PATH, renderModulesDoc } from '../../scripts/gen-docs.js';
 import { ALLOWED_IMPORTS, FILE_EXCEPTIONS } from '../../scripts/lint-policy.js';
 import { FAILURE_MEMORY_MS } from '../../server/cache.js';
 import {
+  DATA_CLASSES,
+  ENV_TTL_CALENDAR,
+  ENV_TTL_MACRO,
+  ENV_TTL_NEWS,
+  ENV_TTL_RATES,
+  policyFor,
+  TTL_VARIABLES,
+  type DataClass,
+} from '../../server/cache-policy.js';
+import {
   DEFAULT_REFRESH_SECONDS,
   ENV_API_KEY,
   ENV_REALTIME,
@@ -16,7 +26,24 @@ import {
   STALE_AFTER_MS,
 } from '../../server/env.js';
 import { httpStatusFor } from '../../server/errors.js';
+import {
+  budgetFor,
+  ENV_TWELVE_DATA_PER_DAY,
+  ENV_TWELVE_DATA_PER_MINUTE,
+  PROVIDER_ORDER,
+  PROVIDER_SPECS,
+} from '../../server/provider-registry.js';
 import { INSTRUMENTS } from '../../src/core/instruments.js';
+import {
+  budgetSpentMessage,
+  CAPABILITY_LABEL,
+  envNotConnectedMessage,
+  formatProviderTime,
+  NO_ENDPOINT_MESSAGE,
+  PROVIDER_STATES,
+  rateLimitedMessage,
+  staleMessage,
+} from '../../src/core/provider-state.js';
 import { TIMEFRAMES } from '../../src/core/types.js';
 import { SURFACE_STALE_AFTER_MS } from '../../src/data/options.js';
 import { API_ERROR_CODES, type ApiErrorCode } from '../../src/data/wire.js';
@@ -140,7 +167,24 @@ function anchorsOf(text: string): Set<string> {
 const ENV_NAME = /`([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)`/g;
 const namesIn = (text: string): string[] =>
   [...text.matchAll(ENV_NAME)].map((match) => match[1] ?? '');
-const REAL_ENV = [ENV_API_KEY, ENV_REALTIME, ENV_REFRESH].sort();
+/**
+ * Every variable the server reads: the three of the market-data connection, the key or address
+ * variable of every provider, the two request-budget overrides, and the four cache lifetimes.
+ * It is built from the code that reads them, so a variable added there is demanded here.
+ */
+const REAL_ENV = [
+  ...new Set([
+    ENV_API_KEY,
+    ENV_REALTIME,
+    ENV_REFRESH,
+    ENV_TWELVE_DATA_PER_MINUTE,
+    ENV_TWELVE_DATA_PER_DAY,
+    ...TTL_VARIABLES,
+    ...Object.values(PROVIDER_SPECS).flatMap((spec) => [spec.keyVariable, spec.baseUrlVariable]),
+  ]),
+]
+  .filter((name): name is string => name !== null)
+  .sort();
 
 describe('the generated module document', () => {
   it('is exactly what the registry produces (run `npm run docs:gen` after changing the registry)', () => {
@@ -328,6 +372,165 @@ describe('environment variables', () => {
     }
   });
 
+  it('gives every variable its row: secret or not, and the address or number it defaults to', () => {
+    const rows = tableRows(section(environment, 'Variables'));
+    const rowOf = (name: string): string[] => {
+      const row = rows.find((cells) => cells[0] === `\`${name}\``);
+      assert.ok(row !== undefined, `the variables table has no row for ${name}`);
+      return row;
+    };
+    for (const spec of Object.values(PROVIDER_SPECS)) {
+      if (spec.keyVariable !== null) {
+        assert.equal(rowOf(spec.keyVariable)[1], '**yes**', `${spec.keyVariable} is a secret`);
+        assert.equal(rowOf(spec.keyVariable)[2], 'unset', `${spec.keyVariable} has no default`);
+      }
+      if (spec.baseUrlVariable !== null) {
+        const row = rowOf(spec.baseUrlVariable);
+        assert.equal(row[1], 'no', `${spec.baseUrlVariable} is an address, not a secret`);
+        assert.equal(
+          row[2],
+          spec.defaultBaseUrl === null ? 'unset' : `\`${spec.defaultBaseUrl}\``,
+          `${spec.baseUrlVariable}: the default address`,
+        );
+      }
+    }
+    assert.equal(rows.length, REAL_ENV.length, 'one row per variable');
+  });
+
+  it('states the lifetime and request-budget variables with the defaults and ranges the code uses', () => {
+    const rows = tableRows(section(environment, 'Variables'));
+    const rowOf = (name: string): string[] => {
+      const row = rows.find((cells) => cells[0] === `\`${name}\``);
+      assert.ok(row !== undefined, `the variables table has no row for ${name}`);
+      return row;
+    };
+    const lifetimes: readonly (readonly [string, DataClass])[] = [
+      [ENV_TTL_NEWS, 'news'],
+      [ENV_TTL_CALENDAR, 'calendar'],
+      [ENV_TTL_MACRO, 'macro-series'],
+      [ENV_TTL_RATES, 'reference-rates'],
+    ];
+    assert.deepEqual(lifetimes.map(([name]) => name).sort(), [...TTL_VARIABLES].sort());
+    for (const [name, dataClass] of lifetimes) {
+      const seconds = (value: string | undefined): number =>
+        policyFor(value === undefined ? {} : { [name]: value }, dataClass).ttlMs / 1000;
+      const row = rowOf(name);
+      assert.equal(row[2], `\`${seconds(undefined)}\``, `${name}: the default`);
+      assert.ok(
+        (row[3] ?? '').includes(`**${seconds('1')} to ${seconds('999999999')}**`),
+        `${name}: the range it is clamped to`,
+      );
+    }
+    const budgets: readonly (readonly [string, 'perMinute' | 'perDay'])[] = [
+      [ENV_TWELVE_DATA_PER_MINUTE, 'perMinute'],
+      [ENV_TWELVE_DATA_PER_DAY, 'perDay'],
+    ];
+    for (const [name, field] of budgets) {
+      const spend = (value: string | undefined): number | null =>
+        budgetFor('twelvedata', value === undefined ? {} : { [name]: value }, false)[field];
+      const row = rowOf(name);
+      assert.equal(row[2], `\`${spend(undefined)}\``, `${name}: the default`);
+      assert.ok(
+        (row[3] ?? '').includes(`**${spend('0')} to ${spend('99999999999')}**`),
+        `${name}: the range it is clamped to`,
+      );
+    }
+  });
+
+  it('lists the ten providers in the order of the provider page, with variables, credential and capability', () => {
+    const rows = tableRows(section(environment, 'Providers'));
+    assert.deepEqual(
+      rows.map((cells) => cells[0]),
+      PROVIDER_ORDER.map((id) => PROVIDER_SPECS[id].label),
+    );
+    for (const cells of rows) {
+      const spec = Object.values(PROVIDER_SPECS).find((entry) => entry.label === cells[0]);
+      assert.ok(spec !== undefined, `${cells[0]} is not a provider`);
+      for (const name of [spec.keyVariable, spec.baseUrlVariable]) {
+        if (name !== null) {
+          assert.ok((cells[1] ?? '').includes(`\`${name}\``), `${spec.label}: ${name}`);
+        }
+      }
+      assert.equal(cells[2], spec.keyRequirement, `${spec.label}: credential`);
+      for (const capability of spec.capabilities) {
+        assert.ok(
+          (cells[3] ?? '').includes(CAPABILITY_LABEL[capability]),
+          `${spec.label}: ${capability}`,
+        );
+      }
+    }
+  });
+
+  it('describes each provider in its own section: variables, credential, limits and the words shown', () => {
+    const providers = section(environment, 'Providers');
+    for (const id of PROVIDER_ORDER) {
+      const spec = PROVIDER_SPECS[id];
+      const part = collapse(section(providers, spec.label));
+      for (const name of [spec.keyVariable, spec.baseUrlVariable]) {
+        if (name !== null) {
+          assert.ok(part.includes(`\`${name}\``), `${spec.label} does not name ${name}`);
+        }
+      }
+      assert.ok(
+        part.includes(`**Credential:** ${spec.keyRequirement}`),
+        `${spec.label}: credential`,
+      );
+      assert.ok(
+        part.includes(collapse(spec.limits)),
+        `${spec.label}: the limits differ from the registry's`,
+      );
+      for (const heading of [
+        'Official source',
+        'Used by',
+        'Verify',
+        'When missing',
+        'Live check',
+      ]) {
+        assert.ok(part.includes(`**${heading}:**`), `${spec.label} has no "${heading}" line`);
+      }
+      if (spec.keyRequirement === 'required' && spec.keyVariable !== null) {
+        assert.ok(
+          part.includes(collapse(envNotConnectedMessage(spec.keyVariable, spec.consequence))),
+          `${spec.label}: the ENV NOT CONNECTED sentence differs from the one the server writes`,
+        );
+      }
+      if (spec.role === 'unavailable') {
+        assert.ok(part.includes(NO_ENDPOINT_MESSAGE), `${spec.label}: the UNAVAILABLE sentence`);
+      }
+    }
+  });
+
+  it('states, for every kind of data, how long it is kept and how long it may still be shown', () => {
+    const duration = (ms: number): string => {
+      const day = 86_400_000;
+      const hour = 3_600_000;
+      if (ms % day === 0) return ms === day ? '1 day' : `${ms / day} days`;
+      if (ms % hour === 0) return ms === hour ? '1 hour' : `${ms / hour} hours`;
+      return `${ms / 60_000} minutes`;
+    };
+    const rows = tableRows(section(environment, 'Request budgets and caching'));
+    assert.deepEqual(
+      rows.map((cells) => cells[0]),
+      DATA_CLASSES.map((dataClass) => `\`${dataClass}\``),
+    );
+    for (const dataClass of DATA_CLASSES) {
+      const row = rows.find((cells) => cells[0] === `\`${dataClass}\``);
+      assert.ok(row !== undefined);
+      const policy = policyFor({}, dataClass);
+      assert.equal(row[2], duration(policy.staleIfErrorMs), `${dataClass}: served after a failure`);
+      assert.equal(row[3], duration(policy.freshWindowMs), `${dataClass}: called CACHED until`);
+      const seconds = /(\d+) seconds/.exec(row[1] ?? '')?.[1];
+      if (['news', 'calendar', 'macro-series', 'reference-rates'].includes(dataClass)) {
+        assert.equal(Number(seconds), policy.ttlMs / 1000, `${dataClass}: the default lifetime`);
+      } else {
+        assert.ok(
+          (row[1] ?? '').includes('`ELSTAND_REFRESH_SECONDS`'),
+          `${dataClass}: the cadence`,
+        );
+      }
+    }
+  });
+
   it('lists planned variables that no code reads yet, and none that it does', () => {
     const planned = [
       ...new Set(namesIn(section(environment, 'Planned variables (not read by this build)'))),
@@ -360,6 +563,28 @@ describe('docs/DATA-INTEGRITY.md', () => {
         `${SURFACE_STALE_AFTER_MS.live / 60_000} minutes for live and ${SURFACE_STALE_AFTER_MS.delayed / 60_000} minutes for delayed`,
       ),
     );
+  });
+
+  it('names every provider state, in order, and quotes the sentences the server writes', () => {
+    const rows = tableRows(section(integrity, 'Provider states'));
+    assert.deepEqual(
+      rows.map((cells) => cells[0]),
+      [...PROVIDER_STATES],
+    );
+    // The documented wording has `<time>` where the server writes a timestamp.
+    const example = Date.UTC(2026, 0, 6, 11, 58);
+    const documented = (sentence: string): string =>
+      sentence.replace(formatProviderTime(example), '<time>');
+    const sentences = [
+      envNotConnectedMessage('FRED_API_KEY', 'Macro observations from FRED are unavailable.'),
+      NO_ENDPOINT_MESSAGE,
+      documented(rateLimitedMessage('Alpha Vantage', example)),
+      documented(budgetSpentMessage('Twelve Data', example)),
+      documented(staleMessage(example)),
+    ];
+    for (const sentence of sentences) {
+      assert.ok(integrity.includes(sentence), `DATA-INTEGRITY.md does not quote: ${sentence}`);
+    }
   });
 
   it('states how many depth levels are drawn', () => {
@@ -403,6 +628,16 @@ describe('docs/ARCHITECTURE.md', () => {
 
   it('names every API error code', () => {
     for (const code of API_ERROR_CODES) assert.ok(architecture.includes(`\`${code}\``), code);
+  });
+
+  it('states how many functions the deployment has, and keeps it within the Hobby plan’s twelve', () => {
+    const functions = readdirSync(`${ROOT}api`).filter((name) => name.endsWith('.ts')).length;
+    const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+    assert.ok(functions <= 12, `api/ holds ${functions} functions; the Hobby plan allows twelve`);
+    assert.ok(
+      collapse(architecture).includes(`this build uses ${words[functions] ?? String(functions)}`),
+      `the document does not say that this build uses ${functions} functions`,
+    );
   });
 
   it('quotes the Content-Security-Policy and the other headers vercel.json sets', () => {

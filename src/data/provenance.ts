@@ -110,3 +110,10 @@ export function parseProvenance(input: unknown): ProvenanceParse {
     },
   };
 }
+
+/** The subject a quote's provenance is kept under, so the screen showing it can find it again. */
+export const quoteSubject = (instrumentId: string): string => `quote:${instrumentId}`;
+
+/** The subject a candle series' provenance is kept under. */
+export const candlesSubject = (instrumentId: string, timeframe: string): string =>
+  `candles:${instrumentId}:${timeframe}`;

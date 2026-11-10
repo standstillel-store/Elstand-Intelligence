@@ -1,18 +1,19 @@
 # Elstand Intelligence
 
-A forex and macro intelligence terminal. Phase 1 is the foundation: the interface, the data
-contracts, the validation rules and the server boundary, built so that **every number on screen
-comes from a real provider, or it is not shown at all.**
+A forex and macro intelligence terminal: the interface, the data contracts, the validation rules,
+the server boundary and ten data providers behind it, built so that **every number on screen comes
+from a real provider, or it is not shown at all.**
 
 > **The rule this project is built on.** Elstand ships no sample, simulated, mock or placeholder
-> data. Where a data source is not connected, the interface says exactly **ENV NOT CONNECTION**.
-> The application starts, renders and stays usable with no environment variables at all.
+> data. Where a data source is not connected, the interface says exactly **ENV NOT CONNECTION**,
+> and says which variable is missing. The application starts, renders and stays usable with no
+> environment variables at all.
 
-Phase 1 evolves the ELVOID project (the reasoning engine, described in
+It evolves the ELVOID project (the reasoning engine, described in
 [docs/ELVOID.md](docs/ELVOID.md)) into a market workstation. It is deliberately dense and plain:
 a watchlist, a chart, a depth panel and a reasoning workspace, not a dashboard of decoration.
 
-## What Phase 1 contains
+## What it contains
 
 | Area                       | What exists                                                                                                                                  | With nothing connected                                                                                              |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -21,17 +22,26 @@ a watchlist, a chart, a depth panel and a reasoning workspace, not a dashboard o
 | Market depth               | Bids and asks drawn separately, with the venue and the observation time beside every number.                                                 | ENV NOT CONNECTION, then (once connected) UNAVAILABLE with the reason. See [Depth](#depth-is-not-a-universal-book). |
 | ELVOID reasoning workspace | Five explicit states, eight fixed sections, a validator for everything an engine returns, a 13-module registry.                              | NOT CONFIGURED. No engine is shipped.                                                                               |
 | Macro: volatility surface  | A genuine 3D surface (orbit, zoom, keyboard, hover), its data contract and validation.                                                       | ENV NOT CONNECTION and the reason no adapter exists                                                                 |
+| Macro: Surface VI          | Event-proximity waves for the high-impact events of the economic calendar, with countdowns. See [docs/EVENT-WAVES.md](docs/EVENT-WAVES.md).  | ENV NOT CONNECTED — Economic calendar provider unavailable. Surface VI event waves are disabled.                    |
 | Macro: bubbles             | One bubble per currency (policy rate, CPI, one-month change) with a documented encoding. See [docs/MACRO-BUBBLES.md](docs/MACRO-BUBBLES.md). | ENV NOT CONNECTION and the reason                                                                                   |
+| Macro: series              | Policy rates, inflation, labor and GDP observations with their source, unit and times.                                                       | ENV NOT CONNECTION, naming the missing variable                                                                     |
 | Macro: news and calendar   | Attributed items, time zones, impact classification shown with who assigned it.                                                              | ENV NOT CONNECTION and the reason                                                                                   |
+| Provider status            | For each of the ten providers, each capability and endpoint: state, last retrieval, data time, cache use, what is missing. No secret shown.  | Every provider listed, each saying what is missing                                                                  |
 
-**The one live connection in Phase 1** is market data (quotes and candles) from
-[Twelve Data](https://twelvedata.com), through a server-side API in this repository. Its API key
-is read on the server only and never reaches the browser. **Depth, options, macro series, news
-and calendar have no adapter yet**, so those modules show what they are missing. They are not
-filled in. Read [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) before connecting a key: the data
-license of your Twelve Data plan decides whether you may show the data publicly.
+**Ten providers, grouped by what they supply**, each behind a server-side adapter, never reached
+from the browser: [Twelve Data](https://twelvedata.com) (forex quotes and candles), Alpha Vantage
+(a fallback for daily candles and spot quotes only), FRED, the BLS, the BEA, the World Bank and the
+IMF (macro observations; the IMF has no supported endpoint and says UNAVAILABLE), Finance Calendar
+(the economic calendar), Marketaux (news) and Frankfurter (daily reference rates). Every key is read
+on the server only and never reaches the browser. **Depth and options have no provider**, so those
+modules show what they are missing. They are not filled in.
 
-Not in Phase 1: Telegram, subscriptions, referrals, accounts and authentication, a full ELVOID
+**A variable that exists is not a connection.** A provider is called connected only after a real
+request to it has been answered and validated. Read [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) before
+connecting a key: it lists every variable, each provider's limits and terms, and how to check
+each one. The data license of your Twelve Data plan decides whether you may show its data publicly.
+
+Not included: Telegram, subscriptions, referrals, accounts and authentication, a full ELVOID
 engine, backtesting, and order execution. There is no fake login and no placeholder for any of
 them.
 
@@ -47,9 +57,10 @@ npm run dev
 Open the address it prints (<http://localhost:5173>). With no key set you will see
 ENV NOT CONNECTION in the header and in every data panel, which is the correct result.
 
-To connect real market data locally, copy `.env.example` to `.env.local` (git-ignored), set
-`TWELVE_DATA_API_KEY`, and restart. Never commit a key. Nothing in the repository contains one,
-and the build fails if a secret value reaches the browser bundle.
+To connect real data locally, copy `.env.example` to `.env.local` (git-ignored), set the variable of
+the provider you want (for market data, `TWELVE_DATA_API_KEY`), and restart. Open `#/providers` (the
+footer link) to see which providers are configured and to check one. Never commit a key. Nothing in
+the repository contains one, and the build fails if a secret value reaches the browser bundle.
 
 ## Commands
 
@@ -78,11 +89,16 @@ a strict Content-Security-Policy (`default-src 'none'`, scripts and styles from 
 only, `connect-src 'self'`). Set the variables from `.env.example` in the project's Environment
 Variables, as server variables. The functions in `api/` are thin entries over `server/`.
 
-**Not verified:** this build has not been deployed to Vercel, and its Twelve Data adapter has not
-talked to the live API (no key was available). Both are written against the vendor's published
-documentation and covered by tests that replace the network. After the first deploy, check
-`/api/status` and follow the first-connection checklist in
-[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md).
+Set the variables under **Project → Settings → Environment Variables** (secrets as Sensitive), then
+**redeploy**: a deployment sees the variables as they were when it was made. After a deployment,
+check `/api/status` and `/api/providers` and follow the first-connection checklist in
+[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md). A passing build proves the code compiled, not that a
+provider answers: the provider page says which providers have been checked.
+
+**What has been verified live.** Twelve Data has been run against its live API from the production
+deployment. The other adapters are written against their providers' published documentation and
+covered by tests that replace the network, which does not prove the live integration; each
+provider's status is in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md#providers).
 
 ## Depth is not a universal book
 
@@ -97,13 +113,13 @@ gold futures are a different instrument and are never substituted for XAU/USD sp
 ```text
 src/
   core/      Pure logic with no I/O: types, instruments, freshness rules, formatting, stores.
-  data/      Provider contracts, validation, the wire format, the market-data service.
+  data/      Provider contracts, validation, the wire format, the HTTP providers and macro feed.
   elvoid/    ELVOID contracts, result validator, status machine, controller, module registry.
   app/       Connection state, router, polling, feeds, the shared application context.
-  ui/        Shell, Forex page (chart, watchlist, depth), ELVOID panel, Macro pages.
+  ui/        Shell, Forex page (chart, watchlist, depth), ELVOID panel, Macro pages, provider status.
   styles/    Design tokens and stylesheets.
   main.ts    The only place that touches the network primitive; it injects fetch.
-server/      API handlers, the Twelve Data adapter, environment reading, cache.
+server/      API handlers, the provider framework and ten adapters, the services, cache, budgets.
 api/         Vercel function entries (one line of logic each).
 scripts/     Build, dev and preview servers, build guards, policy linter, doc generator.
 tests/       unit/ (Node), e2e/ (Playwright, production bundle), support/ (test-only fixtures).
@@ -115,16 +131,17 @@ The dependency order is one-way and enforced by `npm run lint:policy`; see
 
 ## Documentation
 
-| Document                                         | Covers                                                                                                                                    |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)     | Layers, data flow, the connection state machine, UI conventions, security headers, the build.                                             |
-| [docs/DATA-INTEGRITY.md](docs/DATA-INTEGRITY.md) | What "real data only" means in code: data states, validation, nothing repaired, ENV NOT CONNECTION versus SERVER ERROR.                   |
-| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)       | Every environment variable, behavior when each is missing, licensing, the first-connection checklist, variables planned for later phases. |
-| [docs/ELVOID.md](docs/ELVOID.md)                 | The five states, the result contract, what the validator refuses, the improvement lifecycle, how an engine would be connected.            |
-| [docs/ELVOID-MODULES.md](docs/ELVOID-MODULES.md) | The 13 modules and their status. Generated from the registry.                                                                             |
-| [docs/MACRO-BUBBLES.md](docs/MACRO-BUBBLES.md)   | The bubble chart encoding, to the formula.                                                                                                |
-| [docs/DESIGN.md](docs/DESIGN.md)                 | Palette, where the neon green may be used, measured contrast, density and accessibility rules.                                            |
-| [docs/TESTING.md](docs/TESTING.md)               | Test layers, why fixtures cannot reach the product, how to run each suite.                                                                |
+| Document                                         | Covers                                                                                                                                                                 |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)     | Layers, data flow, the connection state machine, UI conventions, security headers, the build.                                                                          |
+| [docs/DATA-INTEGRITY.md](docs/DATA-INTEGRITY.md) | What "real data only" means in code: the states, provenance, validation, fallback rules, nothing repaired, what is not verified.                                       |
+| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)       | Every environment variable, each of the ten providers (limits, how to check it, what is shown when it is missing), caching, licensing, the first-connection checklist. |
+| [docs/EVENT-WAVES.md](docs/EVENT-WAVES.md)       | Surface VI: what the event-proximity waves draw, from what, and what they do not claim.                                                                                |
+| [docs/ELVOID.md](docs/ELVOID.md)                 | The five states, the result contract, what the validator refuses, the improvement lifecycle, how an engine would be connected.                                         |
+| [docs/ELVOID-MODULES.md](docs/ELVOID-MODULES.md) | The 13 modules and their status. Generated from the registry.                                                                                                          |
+| [docs/MACRO-BUBBLES.md](docs/MACRO-BUBBLES.md)   | The bubble chart encoding, to the formula, and where its three values come from.                                                                                       |
+| [docs/DESIGN.md](docs/DESIGN.md)                 | Palette, where the neon green may be used, measured contrast, density and accessibility rules.                                                                         |
+| [docs/TESTING.md](docs/TESTING.md)               | Test layers, why fixtures cannot reach the product, how to run each suite.                                                                                             |
 
 ## Known limitations
 
@@ -135,12 +152,19 @@ These are stated here so nobody has to discover them.
   commit the lockfile it creates, so installs are reproducible.
 - **No ESLint.** The project's own rules are enforced by `npm run lint:policy`, which is a policy
   check and not a style linter. Formatting is Prettier's; types are `tsc --strict`'s.
-- **Depth has no provider.** The depth panel is complete, but the only provider returns
-  UNAVAILABLE. Its book rendering is verified against test fixtures, not against a real venue.
-- **The Macro modules have no data adapter**, so their available-state rendering is verified with
+- **Depth has no provider.** The depth panel is complete, but no provider supplies a book, so it
+  says UNAVAILABLE. Its book rendering is verified against test fixtures, not against a real venue.
+- **The volatility surface has no data adapter**, so its available-state rendering is verified with
   test fixtures only. The fixtures live under `tests/` and cannot be bundled into the product.
-- **The Twelve Data adapter and the Vercel deployment are unverified against the real services**
-  (see above).
+- **Most providers are not verified live.** Only Twelve Data has been run against its live API.
+  Alpha Vantage, FRED, Marketaux and the BEA need keys that were not available, and the
+  development environment cannot reach the hosts of the keyless providers, so their adapters are
+  verified against documented response shapes only. The IMF has no endpoint. See
+  [docs/DATA-INTEGRITY.md](docs/DATA-INTEGRITY.md#what-is-not-verified).
+- **Free plans are small.** Twelve Data's Basic plan allows 800 requests a day, which the default
+  60-second refresh spends in under two hours of an open page. Raise
+  `ELSTAND_REFRESH_SECONDS` or use a larger plan; see
+  [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md#twelve-data).
 - **ELVOID interpretations on news and calendar items.** With no engine configured, an
   interpretation carried by a provider's item is always removed, and the page says how many were.
   Once an engine is configured, an interpretation that arrives inside a provider's item is shown as

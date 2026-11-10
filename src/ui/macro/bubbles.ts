@@ -1,5 +1,6 @@
 import type { AppContext } from '../../app/context.js';
 import { formatNumber, formatPercent, formatUtcDateTime } from '../../core/format.js';
+import { CAPABILITY_LABEL } from '../../core/provider-state.js';
 import { createKeyedResource, type Loadable } from '../../core/resource.js';
 import { safeHttpUrl } from '../../core/url.js';
 import {
@@ -16,7 +17,7 @@ import {
   layoutBubbles,
   type BubbleLayout,
 } from './bubble-layout.js';
-import { failedBlock, loadingNotice, noSourceBlock } from './states.js';
+import { failedBlock, loadingNotice, originNotices, unavailableBlock } from './states.js';
 
 const KEY = 'all';
 const MIN_WIDTH = 280;
@@ -332,6 +333,7 @@ export function createBubbleModule(ctx: AppContext): View {
   );
 
   const stateHost = h('div', { class: 'macro__state' });
+  const notesHost = h('div', { class: 'macro__notes' });
   const chartHost = h('div', { class: 'bubbles__chart' });
   const legendHost = h('div', {});
   const detailHost = h('div', { class: 'bubbles__side' });
@@ -349,7 +351,9 @@ export function createBubbleModule(ctx: AppContext): View {
     tableDetails,
   );
   plotHost.hidden = true;
-  panel.body.append(h('div', { class: 'macro__body' }, stateHost, plotHost, encodingSpec()));
+  panel.body.append(
+    h('div', { class: 'macro__body' }, stateHost, plotHost, notesHost, encodingSpec()),
+  );
 
   let points: readonly CurrencyMacroPoint[] = [];
   let selected: string | null = null;
@@ -406,7 +410,54 @@ export function createBubbleModule(ctx: AppContext): View {
     points = [];
     plotHost.hidden = true;
     replaceContent(stateHost, children);
+    replaceContent(notesHost, []);
+    notesHost.hidden = true;
+    panel.meta.textContent = '';
     stateHost.hidden = false;
+  }
+
+  /** What was left out, and which providers supplied what, shown with a drawn chart. */
+  function showOrigin(result: Extract<BubbleResult, { status: 'available' }>): void {
+    const { origin } = result;
+    const omitted = result.omitted ?? [];
+    const children: HTMLElement[] = [
+      ...(omitted.length === 0
+        ? []
+        : [
+            notice(
+              'caution',
+              'NOT DRAWN',
+              omitted.map((entry) => `${entry.currency}: ${entry.reason}`).join(' · '),
+            ),
+          ]),
+      ...originNotices(origin),
+    ];
+    const inputs = origin?.inputs ?? [];
+    if (inputs.length > 0) {
+      children.push(
+        h(
+          'dl',
+          { class: 'spec' },
+          h('dt', { text: 'Inputs' }),
+          ...inputs.map((input) =>
+            h('dd', {
+              text:
+                `${input.providerLabel} · ${CAPABILITY_LABEL[input.capability]} · ${input.state}` +
+                (input.retrievedAt === null
+                  ? ''
+                  : ` · retrieved ${formatUtcDateTime(input.retrievedAt)}`),
+            }),
+          ),
+        ),
+      );
+    }
+    replaceContent(notesHost, children);
+    notesHost.hidden = children.length === 0;
+    const retrieved = origin?.provenance.retrievedAt ?? null;
+    panel.meta.textContent =
+      origin === undefined
+        ? ''
+        : `${origin.provenance.state}${retrieved === null ? '' : ` · retrieved ${formatUtcDateTime(retrieved)}`}`;
   }
 
   tableDetails.addEventListener('toggle', () => {
@@ -427,7 +478,14 @@ export function createBubbleModule(ctx: AppContext): View {
       case 'ready': {
         const result = state.value;
         if (result.status === 'unavailable') {
-          showState([noSourceBlock('A macro-series provider', result.reason)]);
+          showState([
+            unavailableBlock({
+              source: 'A macro-series provider',
+              reason: result.reason,
+              origin: result.origin,
+              onRetry: () => resource.reload(KEY),
+            }),
+          ]);
           return;
         }
         const issues = validateBubblePoints(result.points);
@@ -451,6 +509,7 @@ export function createBubbleModule(ctx: AppContext): View {
         tableDetails.open = false;
         replaceContent(tableHost, []);
         draw();
+        showOrigin(result);
       }
     }
   }

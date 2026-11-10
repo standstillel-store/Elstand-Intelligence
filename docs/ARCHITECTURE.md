@@ -2,16 +2,23 @@
 
 Elstand Intelligence is a static single-page application and a small server API, written in strict
 TypeScript with **no runtime dependencies**. The browser never talks to a data vendor. It talks to
-the Elstand API on its own origin, and the API talks to the vendor with a key the browser never sees.
+the Elstand API on its own origin, and the API talks to each data provider with a key the browser
+never sees. Ten providers are reached this way, grouped by what they supply (forex market data,
+economic calendar, financial news, macro observations, reference rates) and never connected to the
+frontend directly.
 
 ```text
- browser (src/)                         server (server/, api/)                  vendor
- ---------------                        ----------------------                  ------
- mountApp -> connection.check()  --->   GET /api/status        (names only)
- HTTP provider                   --->   GET /api/quotes?ids=…   -> TTL cache -> Twelve Data /quote
-   validates every response      --->   GET /api/candles?id=…&tf=… -> TTL cache -> /time_series
- service -> feeds -> selectors          validates what the vendor sent, returns our own shapes
- panels (DOM, canvas)                   key read from the environment, never returned
+ browser (src/)                      server (server/, api/)                           providers
+ ---------------                     ----------------------                           ---------
+ mountApp -> connection.check() -->  GET /api/status         (names only)
+ HTTP provider                  -->  GET /api/quotes?ids=…   -> service -> cache  --> Twelve Data
+   validates every response     -->  GET /api/candles?id=…&tf=… -> service -> cache -> (Alpha Vantage as
+                                                                                       a daily fallback)
+ HTTP macro feed                -->  GET /api/calendar | news | macro | bubbles | rates
+   validates again                     -> service -> budget -> cache -> retry -> adapter --> the provider
+ provider status page           -->  GET /api/providers[?probe=<id>]  (states; one real request on demand)
+ service -> feeds -> selectors       validates what the provider sent, returns our own shapes and a provenance
+ panels (DOM, canvas)                keys read from the environment, never returned
 ```
 
 ## Layers and the dependency rule
@@ -19,18 +26,18 @@ the Elstand API on its own origin, and the API talks to the vendor with a key th
 Imports run one way. `npm run lint:policy` (rule `layering`) fails on any import that goes the other
 way, and on any import that leaves the repository.
 
-| Layer   | Directory     | May import                  | Responsibility                                                                                                                                |
-| ------- | ------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| core    | `src/core`    | core                        | Pure logic with no I/O: types, the instrument registry, freshness rules, formatting, stores, resources, ticks, URLs.                          |
-| data    | `src/data`    | data, core                  | Provider contracts, validation, the wire format shared with the server, the HTTP provider, the market-data service, the Macro data contracts. |
-| elvoid  | `src/elvoid`  | elvoid, core                | ELVOID contracts, result validator, status machine, controller, improvement lifecycle, module registry.                                       |
-| app     | `src/app`     | app, core, data, elvoid     | Application state: connection, router, polling, feeds, selectors, the shared context. Nothing here draws.                                     |
-| ui      | `src/ui`      | ui, app, core, data, elvoid | Everything that builds DOM or draws on a canvas.                                                                                              |
-| main    | `src/main.ts` | app, ui, styles             | Entry point. The only place that names the network primitive.                                                                                 |
-| server  | `server`      | server, core, data          | API handlers, the Twelve Data adapter, environment reading, the cache. Shares only the validated contracts.                                   |
-| api     | `api`         | api, server                 | Vercel function entries. One call each.                                                                                                       |
-| scripts | `scripts`     | scripts, server             | Build, dev and preview servers, guards, policy linter, doc generator.                                                                         |
-| tests   | `tests`       | anything                    |                                                                                                                                               |
+| Layer   | Directory     | May import                  | Responsibility                                                                                                                                                       |
+| ------- | ------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| core    | `src/core`    | core                        | Pure logic with no I/O: types, the instrument registry, freshness rules, formatting, stores, resources, ticks, URLs.                                                 |
+| data    | `src/data`    | data, core                  | Provider contracts, validation, the wire format shared with the server, the HTTP provider, the market-data service, the Macro data contracts.                        |
+| elvoid  | `src/elvoid`  | elvoid, core                | ELVOID contracts, result validator, status machine, controller, improvement lifecycle, module registry.                                                              |
+| app     | `src/app`     | app, core, data, elvoid     | Application state: connection, router, polling, feeds, selectors, the shared context. Nothing here draws.                                                            |
+| ui      | `src/ui`      | ui, app, core, data, elvoid | Everything that builds DOM or draws on a canvas.                                                                                                                     |
+| main    | `src/main.ts` | app, ui, styles             | Entry point. The only place that names the network primitive.                                                                                                        |
+| server  | `server`      | server, core, data          | API handlers, the provider framework, the ten provider adapters and the services that ask them, environment reading, the cache. Shares only the validated contracts. |
+| api     | `api`         | api, server                 | Vercel function entries. One call each.                                                                                                                              |
+| scripts | `scripts`     | scripts, server             | Build, dev and preview servers, guards, policy linter, doc generator.                                                                                                |
+| tests   | `tests`       | anything                    |                                                                                                                                                                      |
 
 Two single files get one more layer each (`FILE_EXCEPTIONS` in `scripts/lint-policy.ts`):
 `src/app/app.ts`, the composition root that mounts the shell and the pages, may import `src/ui`; and
@@ -63,6 +70,12 @@ them without sharing anything that draws.
 7. Selectors (`src/app/selectors.ts`) turn a ready value plus the source's declared mode and the
    clock into a `DataState`. Panels read states, never raw freshness arithmetic.
 
+8. The Macro modules and the provider status page ask the capability endpoints instead. The HTTP
+   macro feed (`src/data/http-macro.ts`) and the provider reader (`src/data/http-providers.ts`)
+   parse the answer again in the browser, and the provider ledger (`src/app/provider-ledger.ts`)
+   remembers the provenance of every answer by provider, capability and endpoint, so the status page
+   can say what was really retrieved, and when.
+
 **Polling** (`src/app/polling.ts`). Quotes refresh every `pollSeconds.quotes`, and only the
 **selected** chart's candles every `pollSeconds.candles`; both come from the server's
 `ELSTAND_REFRESH_SECONDS`. Nothing is requested while the tab is hidden, while auto-refresh is
@@ -73,6 +86,35 @@ being blanked or frozen.
 
 **Stale responses cannot win.** Every resource key carries a token. A response that belongs to a
 superseded request is discarded, and a superseded request is aborted.
+
+## The server
+
+Every request for provider data goes the same way: **registry** (is the provider configured, and with
+what), **request budget** (is a request allowed now), **cache** (is a valid copy kept), **one retry**
+of a retryable failure, **adapter** (the request and its strict parsing), **validation**, and then a
+**provenance** that says what the answer is. The capability endpoints answer HTTP 200 with
+`{ provenance, data }` whatever the provider did, because "no credential", "rate limited" and "the
+provider failed" are states of the product, shown in words. Only a request that cannot be understood,
+the wrong method or a defect in this server is an HTTP error.
+
+| Module                                                                                         | Responsibility                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `server/provider-registry.ts`                                                                  | The ten providers: variables, credential rule, capabilities, limits, request budgets and what a missing or invalid configuration is called.                      |
+| `server/provider-runtime.ts`, `server/limiter.ts`                                              | One budget per provider (a window per minute and per day), checked before any request is made. A request over budget is not sent.                                |
+| `server/cache.ts`, `server/cache-policy.ts`                                                    | The in-memory cache with request coalescing, and the per-kind lifetimes: how long a copy is fresh, how long it may be served after a failure, when it is STALE.  |
+| `server/retry.ts`                                                                              | One bounded retry, only for a failure that can pass (a timeout or a 5xx), never for a rejected credential or a rate limit.                                       |
+| `server/provider-http.ts`                                                                      | The one HTTP path of every adapter but Twelve Data's: https only, no redirects, a timeout and a size cap, and no credential in any message.                      |
+| the adapters                                                                                   | `twelvedata`, `alphavantage`, `fred`, `financecalendar`, `marketaux`, `frankfurter`, `worldbank`, `bls`, `bea`: build the request and parse the answer strictly. |
+| `server/service.ts`                                                                            | The shared request path: budget, cache, retry, validation and provenance for one datum, plus the sentences the states are written with.                          |
+| `server/forex-service.ts`                                                                      | Quotes and candles, and the capability-aware fallback to Alpha Vantage.                                                                                          |
+| `server/macro-service.ts`, `server/macro-catalog.ts`                                           | Macro series, and the bubbles calculated from them. The catalog lists each series, its unit and its source.                                                      |
+| `server/feeds-service.ts`                                                                      | The calendar, the news and the reference rates.                                                                                                                  |
+| `server/probe.ts`                                                                              | One real request to one provider, on demand, for the provider page.                                                                                              |
+| `server/capability-handlers.ts`, `server/handlers.ts`, `server/router.ts`, `server/respond.ts` | The endpoints, their parameter checks and their headers. Nine functions in `api/`, one call each.                                                                |
+
+Budgets and caches are kept per server instance. The `Cache-Control` headers let a CDN share one
+answer between visitors, which is what keeps several instances from multiplying the requests a
+provider sees. [ENVIRONMENT.md](ENVIRONMENT.md#request-budgets-and-caching) has the numbers.
 
 ## The connection state machine
 
@@ -115,20 +157,26 @@ connection alone. A newer `check()` supersedes an older one in flight.
 
 - `elvoidEngine`: an `ElvoidEngine`. Unset in Phase 1, so ELVOID reports NOT CONFIGURED. Everything an
   engine returns is validated before it can be shown ([ELVOID.md](ELVOID.md)).
-- `macro.surface`, `macro.feed`, `macro.bubbles`: providers for the Macro modules. Unset in Phase 1,
-  so each module answers `unavailable` with the reason no adapter exists, shown as ENV NOT CONNECTION.
+- `macro.surface`, `macro.feed`, `macro.bubbles`: providers for the Macro modules. The feed and the
+  bubbles are the HTTP macro feed unless a test injects another, so they ask the server and show what
+  it says, including ENV NOT CONNECTION when a provider's key is missing. The volatility surface has
+  no provider, so it answers `unavailable` with the reason.
 - `connection`: a ready-made connection, for tests.
 
-Market data is different: it is connected by the server environment, not by the application
+Provider data is different: it is connected by the server environment, not by the application
 environment, because it needs a secret.
 
 ## Security posture
 
-- **Secrets stay on the server.** `TWELVE_DATA_API_KEY` is read by `server/env.ts` and used by
-  `server/twelvedata.ts`. The key travels in the `Authorization` header, never in a URL, redirects are
-  refused, provider text is sanitized and any echo of the key redacted. `/api/status` lists variable
-  _names_ only. The policy linter bans the name and any `process.env` read in browser code, and the
-  build fails if the value of a credential-looking variable appears anywhere in `dist/`.
+- **Secrets stay on the server.** Every key is read by the server only (`server/env.ts`,
+  `server/provider-registry.ts`). Twelve Data's key travels in the `Authorization` header and the
+  Finance Calendar's in `X-API-Key`; the providers that define no header (FRED, Alpha Vantage,
+  Marketaux and BEA take the key in the address, BLS in the request body) get it there, which is why
+  no message ever contains an address, and why redirects are refused so a key cannot be forwarded to
+  another host. Provider text is sanitized and any echo of a key redacted. `/api/status` and
+  `/api/providers` list variable _names_ only. The policy linter bans every key name and any
+  `process.env` read in browser code, and the build fails if the value of a credential-looking
+  variable appears anywhere in `dist/`.
 - **The browser calls its own origin only.** One `fetch` exists, injected in `src/main.ts`. The
   policy linter bans absolute URLs and network primitives elsewhere in browser code.
 - **Content-Security-Policy** (`vercel.json`): `default-src 'none'; script-src 'self'; style-src
@@ -156,6 +204,12 @@ browser bundle; any credential-looking variable's value in the output; `process.
 and the API, and apply the headers from `vercel.json`, so what is tested locally is what is
 configured for production. On Vercel the platform serves the files and the `api/*` functions instead.
 
+`npm run typecheck` runs three configurations: the application, the server, scripts and tests, and
+`tsconfig.vercel.json`, which mirrors how Vercel's Node builder type-checks `api/*.ts` (non-strict).
+A guard that holds under the strict configuration can still print a diagnostic in the platform's
+build log, so that one is kept at zero too. The Hobby plan allows twelve functions; this build uses
+nine (`api/`), and a test fails if there were ever more than twelve.
+
 TypeScript is strict, with `erasableSyntaxOnly`, `exactOptionalPropertyTypes`,
 `noUncheckedIndexedAccess`, `verbatimModuleSyntax` and unused-symbol errors. Relative imports are
 written with `.js` and resolved to `.ts` by `scripts/register-ts.mjs` when running scripts and tests;
@@ -165,18 +219,23 @@ attempt to.
 ## Known limitations
 
 - **ELVOID interpretation on news and calendar items.** `screenCalendar` and `screenNews` remove any
-  interpretation attached to an item while no engine is configured. Once an engine is configured, an
-  interpretation that arrives inside a _provider's_ item is shown as ELVOID's, and nothing checks that
-  the engine wrote it. Before a news or calendar adapter is connected alongside a real engine, the
-  interpretation should be taken only from validated engine results.
+  interpretation attached to an item while no engine is configured, and the news and calendar
+  adapters never produce one. Once an engine is configured, an interpretation that arrives inside a
+  _provider's_ item would be shown as ELVOID's, and nothing checks that the engine wrote it. Before an
+  engine is connected alongside the news and calendar adapters, the interpretation should be taken
+  only from validated engine results.
 - **Depth polling.** The depth feed loads on selection and has a Refresh button, but is not polled,
   because the only provider returns UNAVAILABLE. A real depth adapter needs its own cadence.
-- **One warm instance, one cache.** The server cache is in memory per instance. On serverless hosting,
-  instances do not share it; the `Cache-Control` headers let a CDN share answers instead.
-- **Vercel packaging is unverified.** The functions in `api/` import `../server/*.js` and `../src/*.js`,
-  which Vercel's TypeScript build must resolve to `.ts` files. This build has not been deployed.
-  Check `/api/status` after the first deploy.
+- **One warm instance, one cache, one budget.** The server cache and the request budgets are in memory
+  per instance. On serverless hosting, instances do not share them; the `Cache-Control` headers let a
+  CDN share answers instead. The budgets are a guard against spending a plan by accident, not an
+  account of what the provider has counted.
+- **Vercel packaging.** The functions in `api/` import `../server/*.js` and `../src/*.js`, which
+  Vercel's TypeScript build resolves to `.ts` files. The platform's build and `/api/status` are the
+  proof, not the local build: check them after every deployment.
+- **Most providers are not yet verified live.** See [DATA-INTEGRITY.md](DATA-INTEGRITY.md#what-is-not-verified).
 - **Dependencies are not locked** in this repository (no `package-lock.json`), so `npm install` may
   resolve newer versions within the declared ranges until a lockfile is committed.
-- **The 3D surface and the bubble chart have no real data source yet.** Their available-state
-  rendering is verified with test fixtures only.
+- **The 3D surface has no real data source.** Its available-state rendering is verified with test
+  fixtures only. The bubble chart is fed for the euro alone, from real inputs
+  ([MACRO-BUBBLES.md](MACRO-BUBBLES.md#where-the-values-come-from)).
