@@ -213,6 +213,22 @@ describe('no-secret-name-in-browser', () => {
     breaks('no-secret-name-in-browser', 'src/app/a.ts', 'const x = import.meta.env.MODE;');
   });
 
+  it('knows the key name of every provider that takes a key', () => {
+    const names = [
+      'TWELVE_DATA_API_KEY',
+      'ALPHA_VANTAGE_API_KEY',
+      'FRED_API_KEY',
+      'FINANCE_CALENDAR_API_KEY',
+      'MARKETAUX_API_KEY',
+      'BLS_API_KEY',
+      'BEA_API_KEY',
+    ];
+    for (const name of names) {
+      breaks('no-secret-name-in-browser', 'src/data/a.ts', `const name = '${name}';`);
+      clean('server/a.ts', `export const NAME = '${name}';`);
+    }
+  });
+
   it('allows the server to use them', () => {
     clean('server/env.ts', "export const ENV_API_KEY = 'TWELVE_DATA_API_KEY';");
     clean('scripts/dev.ts', 'const e = process.env;');

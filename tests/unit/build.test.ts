@@ -100,12 +100,27 @@ describe('the production build of this repository', () => {
     assert.doesNotMatch(state.js, /process\.env/);
     assert.doesNotMatch(state.js, /\beval\s*\(/);
     assert.doesNotMatch(state.js, /new\s+Function\s*\(/);
-    assert.doesNotMatch(state.js, /twelvedata/i);
+    // The provider id `twelvedata` is part of the wire contract: the provider-status page names
+    // providers by id. What the browser must never carry is the vendor's host, or the vendor's
+    // name anywhere except as that quoted id.
+    assert.doesNotMatch(state.js, /twelvedata\.com/i, 'the browser knows no vendor host');
+    const withoutProviderIds = state.js.replace(/(["'`])twelvedata\1/g, '');
     assert.doesNotMatch(
-      state.js,
-      /TWELVE_DATA_API_KEY/,
-      'the browser does not even know the variable name',
+      withoutProviderIds,
+      /twelvedata/i,
+      'the vendor name appears only as a quoted provider id',
     );
+    for (const name of [
+      'TWELVE_DATA_API_KEY',
+      'ALPHA_VANTAGE_API_KEY',
+      'FRED_API_KEY',
+      'FINANCE_CALENDAR_API_KEY',
+      'MARKETAUX_API_KEY',
+      'BLS_API_KEY',
+      'BEA_API_KEY',
+    ]) {
+      assert.ok(!state.js.includes(name), `the browser does not even know ${name}`);
+    }
   });
 
   it('contains no absolute URL except the SVG namespace, so nothing can phone home', async () => {
