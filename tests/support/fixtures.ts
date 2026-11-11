@@ -188,13 +188,32 @@ export function fixtureCalendar(): CalendarEvent[] {
     event('ev-2', 26, 'EUR', 'Fixture policy statement', {
       impact: { level: 'medium', classifiedBy: 'Fixture calendar rating' },
     }),
+    // A credit whose address is not a web address: the words are shown, no link is made.
     event('ev-3', 50, 'JPY', 'Fixture trade balance', {
       impact: null,
       forecast: null,
       previous: null,
+      source: {
+        ...attribution('Fixture calendar'),
+        rights: {
+          credit: 'Fixture credit with an unsafe address',
+          creditUrl: 'javascript:alert(1)',
+        },
+      },
     }),
+    // Credit, license and reuse notice, all supplied with the event, with safe addresses.
     event('ev-4', 74, 'GBP', 'Fixture labour report', {
       elvoidInterpretation: 'Interpretation text supplied for the test.',
+      source: {
+        ...attribution('Fixture calendar'),
+        rights: {
+          credit: 'Fixture credit line',
+          creditUrl: 'https://example.invalid/credit',
+          license: 'Fixture license',
+          licenseUrl: 'https://example.invalid/license',
+          notice: 'Fixture reuse notice supplied for the test.',
+        },
+      },
     }),
     event('ev-bad', 90, 'USD', 'Fixture unattributed event', {
       source: { name: '', url: null, retrievedAt: FIXTURE_NOW },

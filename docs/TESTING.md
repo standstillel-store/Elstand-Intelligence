@@ -104,13 +104,13 @@ directory use `mkdtemp` under the operating system's temporary directory.
 Said plainly, so a green run is not read as more than it is. **Passing tests that replace the
 network do not prove that a live API integration works.**
 
-- **Live provider APIs.** Twelve Data was checked against its live API from the production deployment,
-  by hand, following the first-connection checklist in
-  [ENVIRONMENT.md](ENVIRONMENT.md#first-connection-checklist). Every other adapter is verified only
-  against the response shapes its provider documents, through a stand-in. Alpha Vantage, FRED,
-  Marketaux and the BEA need a key that was not available when they were written; Finance Calendar,
-  Frankfurter, the World Bank and the BLS need none, but the development environment cannot reach
-  their hosts. Each provider's status is in [ENVIRONMENT.md](ENVIRONMENT.md#providers).
+- **Live provider APIs.** Twelve Data, Frankfurter, the World Bank and the BLS were checked against
+  their live APIs from the production deployment, by hand, following the first-connection checklist
+  in [ENVIRONMENT.md](ENVIRONMENT.md#first-connection-checklist). Every other adapter is verified
+  only against the response shapes its provider documents, through a stand-in. Alpha Vantage, FRED,
+  Marketaux, the BEA and Finance Calendar need a key that was not available when they were written;
+  Finance Calendar has no anonymous access, and a keyless request to it was refused with HTTP 401 on
+  the production deployment. Each provider's status is in [ENVIRONMENT.md](ENVIRONMENT.md#providers).
 - **Provider accounting.** The request budgets are Elstand's own counts, tested against a clock. They
   are not compared with a provider's counter, and each server instance keeps its own.
 - **Vercel.** The static build, the headers and the handlers are tested locally through one shared

@@ -14,6 +14,7 @@ import type {
   NewsItem,
   ProviderSentiment,
   SourceAttribution,
+  SourceRights,
 } from './macro.js';
 import {
   isObservationFrequency,
@@ -174,13 +175,45 @@ const ADJUSTMENTS = ['seasonally adjusted', 'not seasonally adjusted'] as const;
 const isAdjustmentOrNull = (value: unknown): value is (typeof ADJUSTMENTS)[number] | null =>
   value === null || oneOf(ADJUSTMENTS, value);
 
+/** A field of a source's rights: absent, or text. Anything else is a malformed answer. */
+function rightsText(input: Record<string, unknown>, key: string): Parsed<string | undefined> {
+  const value = input[key];
+  if (value === undefined) return ok(undefined);
+  return isText(value) ? ok(value) : fail(`the ${key} of a source's rights is malformed`);
+}
+
+function parseRights(input: unknown): Parsed<SourceRights> {
+  if (!isRecord(input)) return fail("a source's rights are not an object");
+  const credit = rightsText(input, 'credit');
+  if (credit.ok === false) return fail(credit.error);
+  const creditUrl = rightsText(input, 'creditUrl');
+  if (creditUrl.ok === false) return fail(creditUrl.error);
+  const license = rightsText(input, 'license');
+  if (license.ok === false) return fail(license.error);
+  const licenseUrl = rightsText(input, 'licenseUrl');
+  if (licenseUrl.ok === false) return fail(licenseUrl.error);
+  const notice = rightsText(input, 'notice');
+  if (notice.ok === false) return fail(notice.error);
+  return ok({
+    ...(credit.value === undefined ? {} : { credit: credit.value }),
+    ...(creditUrl.value === undefined ? {} : { creditUrl: creditUrl.value }),
+    ...(license.value === undefined ? {} : { license: license.value }),
+    ...(licenseUrl.value === undefined ? {} : { licenseUrl: licenseUrl.value }),
+    ...(notice.value === undefined ? {} : { notice: notice.value }),
+  });
+}
+
 function parseSource(input: unknown): Parsed<SourceAttribution> {
   if (!isRecord(input)) return fail('a source is not an object');
   const { name, url, retrievedAt } = input;
   if (!isText(name) || !isTextOrNull(url) || !isTime(retrievedAt)) {
     return fail('a source is malformed');
   }
-  return ok({ name, url, retrievedAt });
+  const rawRights = input['rights'];
+  if (rawRights === undefined) return ok({ name, url, retrievedAt });
+  const rights = parseRights(rawRights);
+  if (rights.ok === false) return fail(rights.error);
+  return ok({ name, url, retrievedAt, rights: rights.value });
 }
 
 function parseImpact(input: unknown): Parsed<ImpactClassification | null> {

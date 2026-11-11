@@ -135,6 +135,41 @@ describe('calendar: events from a connected provider', () => {
     });
   });
 
+  it('keeps the credit, license and reuse notice the provider supplied, as written, and invents none', async () => {
+    await withFeeds(both, async ({ page }) => {
+      await page.waitForSelector(`${CALENDAR} article[data-event-id]`);
+      const rights = (id: string): string =>
+        `${CALENDAR} [data-event-id="${id}"] [data-source-rights]`;
+
+      // ev-4 came with all three, and each address is a safe web address, so each is a link.
+      assert.equal(
+        await text(page, rights('ev-4')),
+        'Credit: Fixture credit line License: Fixture license Notice: Fixture reuse notice supplied for the test.',
+      );
+      const links = await page.$$eval(`${rights('ev-4')} a`, (nodes) =>
+        nodes.map(
+          (node) =>
+            `${node.textContent}|${node.getAttribute('href')}|${node.getAttribute('target')}|${node.getAttribute('rel')}`,
+        ),
+      );
+      assert.deepEqual(links, [
+        'Fixture credit line|https://example.invalid/credit|_blank|noopener noreferrer',
+        'Fixture license|https://example.invalid/license|_blank|noopener noreferrer',
+      ]);
+
+      // ev-3 came with a credit whose address is not a web address: the words stay, the link does not.
+      assert.equal(
+        await text(page, rights('ev-3')),
+        'Credit: Fixture credit with an unsafe address',
+      );
+      assert.equal(await page.locator(`${rights('ev-3')} a`).count(), 0);
+
+      // ev-1 came with none, and Elstand writes none for it.
+      assert.equal(await page.locator(rights('ev-1')).count(), 0);
+      assert.doesNotMatch(await item(page, CALENDAR, 'ev-1'), /Credit|License|Notice/);
+    });
+  });
+
   it('keeps every time as a machine-readable UTC instant, whatever zone it is shown in', async () => {
     await withFeeds(both, async ({ page }) => {
       await page.waitForSelector(`${CALENDAR} article[data-event-id]`);

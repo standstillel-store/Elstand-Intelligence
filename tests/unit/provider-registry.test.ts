@@ -36,12 +36,23 @@ describe('provider registry', () => {
       unreadyMessage(all.fred),
       'ENV NOT CONNECTED — FRED_API_KEY is missing. Macro observations from FRED are unavailable.',
     );
-    for (const id of ['twelvedata', 'alphavantage', 'fred', 'marketaux', 'bea'] as const) {
+    for (const id of [
+      'twelvedata',
+      'alphavantage',
+      'fred',
+      'financecalendar',
+      'marketaux',
+      'bea',
+    ] as const) {
       assert.equal(all[id].kind, 'env-missing', id);
       assert.match(unreadyMessage(all[id]) ?? '', /^ENV NOT CONNECTED — [A-Z_]+ is missing\. /, id);
     }
+    assert.equal(
+      unreadyMessage(all.financecalendar),
+      'ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing. Economic calendar events from Finance Calendar are unavailable.',
+    );
     // Keys that are optional, and providers that need none, are ready without any variable.
-    for (const id of ['financecalendar', 'bls', 'frankfurter', 'worldbank'] as const) {
+    for (const id of ['bls', 'frankfurter', 'worldbank'] as const) {
       const reading = all[id];
       assert.equal(reading.kind, 'ready', id);
       assert.equal(reading.kind === 'ready' ? reading.apiKey : 'x', null, `${id} runs keyless`);
@@ -142,10 +153,22 @@ describe('provider registry', () => {
       describeProviders({ BLS_API_KEY: token('bls') }).map((entry) => [entry.id, entry]),
     );
     assert.equal(byId.get('bls')?.keyed, true);
+    assert.equal(byId.get('frankfurter')?.keyed, false);
+    assert.equal(byId.get('frankfurter')?.config, 'ready');
+    // The calendar has no anonymous access: without its key it is not connected.
     assert.equal(byId.get('financecalendar')?.keyed, false);
-    assert.equal(byId.get('financecalendar')?.config, 'ready');
+    assert.equal(byId.get('financecalendar')?.keyRequirement, 'required');
+    assert.equal(byId.get('financecalendar')?.config, 'env-not-connected');
     assert.equal(byId.get('fred')?.keyed, false);
     assert.equal(byId.get('fred')?.config, 'env-not-connected');
+    const withKey = new Map(
+      describeProviders({ FINANCE_CALENDAR_API_KEY: token('calendar') }).map((entry) => [
+        entry.id,
+        entry,
+      ]),
+    );
+    assert.equal(withKey.get('financecalendar')?.keyed, true);
+    assert.equal(withKey.get('financecalendar')?.config, 'ready');
   });
 
   it('lists the providers that can supply a capability, primary first', () => {
@@ -175,8 +198,8 @@ describe('provider registry', () => {
     assert.deepEqual(budgetFor('twelvedata', {}, true), { perMinute: 8, perDay: 800 });
     assert.deepEqual(budgetFor('alphavantage', {}, true), { perMinute: 5, perDay: 25 });
     assert.deepEqual(budgetFor('marketaux', {}, true), { perMinute: 3, perDay: 90 });
-    assert.deepEqual(budgetFor('financecalendar', {}, false), { perMinute: 20, perDay: 1_500 });
-    assert.deepEqual(budgetFor('financecalendar', {}, true), { perMinute: 30, perDay: 9_000 });
+    // Starter: 1,000 a day and 25,000 a month; 750 a day over 30 days is 22,500.
+    assert.deepEqual(budgetFor('financecalendar', {}, true), { perMinute: 10, perDay: 750 });
     assert.deepEqual(budgetFor('bls', {}, false), { perMinute: 5, perDay: 20 });
     assert.deepEqual(budgetFor('bls', {}, true), { perMinute: 20, perDay: 400 });
     assert.deepEqual(budgetFor('imf', {}, false), { perMinute: 0, perDay: 0 });

@@ -14,6 +14,7 @@ import {
   CALENDAR_ATTRIBUTION,
   IMPACT_SCHEME,
   fetchCalendar,
+  rightsOf,
 } from '../../server/financecalendar.js';
 import { fetchFredObservations } from '../../server/fred.js';
 import { fetchReferenceRates } from '../../server/frankfurter.js';
@@ -505,7 +506,8 @@ describe('Frankfurter adapter', () => {
 });
 
 describe('Finance Calendar adapter', () => {
-  const config = { baseUrl: 'https://www.financecalendar.com/wp-json/fc/v1', apiKey: null };
+  // The provider has no anonymous access: every request carries the key of a plan.
+  const config = { baseUrl: 'https://www.financecalendar.com/wp-json/fc/v1', apiKey: KEY };
   const window = { fromMs: T0 - DAY_MS, toMs: T0 + 7 * DAY_MS };
   const event = (over: Record<string, unknown> = {}) => ({
     id: 101,
@@ -553,7 +555,8 @@ describe('Finance Calendar adapter', () => {
     assert.equal(sent?.path, '/wp-json/fc/v1/calendar');
     assert.equal(sent?.params['from'], '2026-01-05');
     assert.equal(sent?.params['to'], '2026-01-13');
-    assert.equal(sent?.headers['x-api-key'], undefined, 'no key header without a key');
+    assert.equal(sent?.headers['x-api-key'], KEY, 'the key travels in a header');
+    assert.equal(first?.source.rights, undefined, 'a record without credits has no rights');
   });
 
   it('marks a date-only event as date precision and never gives it a clock time', async () => {
@@ -628,11 +631,110 @@ describe('Finance Calendar adapter', () => {
 
   it('sends a key in a header, never in the address, and never echoes it', async () => {
     const { fake, deps } = depsFor(() => json({ error: `unknown key ${KEY}` }, 401));
-    const failure = await failureOf(() => fetchCalendar(deps, { ...config, apiKey: KEY }, window));
+    const failure = await failureOf(() => fetchCalendar(deps, config, window));
     assert.equal(failure.code, 'provider_auth');
     assert.ok(!failure.message.includes(KEY));
     assert.equal(fake.calls[0]?.headers['x-api-key'], KEY);
     assert.ok(!(fake.calls[0]?.url ?? '').includes(KEY));
+  });
+
+  it('reports a refused or revoked key and an account that needs payment as the key being unusable', async () => {
+    for (const status of [401, 403]) {
+      const { deps } = depsFor(() => json({ error: 'A valid API key is required.' }, status));
+      const failure = await failureOf(() => fetchCalendar(deps, config, window));
+      assert.equal(failure.code, 'provider_auth', `HTTP ${status}`);
+      assert.ok(failure.message.includes(`HTTP ${status}`), failure.message);
+    }
+    const unpaid = depsFor(() =>
+      json(
+        {
+          error: `Payment is required for ${KEY}.`,
+          code: 'payment_required',
+          access_state: 'payment_required',
+          account_url: 'https://www.financecalendar.com/account/',
+          upgrade_url: 'https://www.financecalendar.com/pricing/',
+        },
+        402,
+      ),
+    );
+    const failure = await failureOf(() => fetchCalendar(unpaid.deps, config, window));
+    assert.equal(failure.code, 'provider_auth');
+    assert.equal(
+      failure.message,
+      'Finance Calendar says this account needs payment to activate or renew API access (HTTP 402).',
+    );
+    assert.ok(!failure.message.includes(KEY));
+  });
+
+  it('keeps the credit, license and reuse notice the provider supplied, in its own words', async () => {
+    const { deps } = depsFor(() =>
+      page([
+        event({
+          source_license: {
+            id: 'OGL-UK-3.0',
+            url: 'https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/',
+            terms_url: 'https://example.test/terms-are-not-used-when-url-exists',
+            attribution: 'Contains public sector information licensed under the OGL v3.0.',
+            attribution_url: 'https://www.ons.gov.uk/',
+            notice: 'Adapted: figures are copied as published.',
+            adapted: true,
+          },
+          source_rights: {
+            basis: 'open-license',
+            attribution: 'Used only when the license names no credit.',
+            notice: 'Used only when the license has no notice.',
+            terms_url: 'https://www.ons.gov.uk/terms',
+          },
+        }),
+      ]),
+    );
+    const rights = (await fetchCalendar(deps, config, window)).events[0]?.source.rights;
+    assert.deepEqual(rights, {
+      credit: 'Contains public sector information licensed under the OGL v3.0.',
+      creditUrl: 'https://www.ons.gov.uk/',
+      license: 'OGL-UK-3.0',
+      licenseUrl: 'https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/',
+      notice: 'Adapted: figures are copied as published.',
+    });
+  });
+
+  it('lets source_rights fill what the license left out, and drops anything that is not safe text', () => {
+    assert.deepEqual(
+      rightsOf({
+        source_license: { id: 'CC-BY-4.0' },
+        source_rights: {
+          attribution: 'Data: Example Statistics Office',
+          notice: 'Reuse is allowed with credit.',
+          terms_url: 'https://example.test/terms',
+        },
+      }),
+      {
+        credit: 'Data: Example Statistics Office',
+        license: 'CC-BY-4.0',
+        licenseUrl: 'https://example.test/terms',
+        notice: 'Reuse is allowed with credit.',
+      },
+    );
+    // Links must be https without credentials; control characters are removed; length is bounded.
+    const unsafe = rightsOf({
+      source_license: {
+        id: 'X',
+        url: 'javascript:alert(1)',
+        terms_url: 'http://example.test/plain-http',
+        attribution_url: 'https://user:pass@example.test/',
+        attribution: 'Line one\u0000\nLine two',
+        notice: 'n'.repeat(1000),
+      },
+    });
+    assert.equal(unsafe?.licenseUrl, undefined);
+    assert.equal(unsafe?.creditUrl, undefined);
+    assert.equal(unsafe?.credit, 'Line one Line two');
+    assert.equal(unsafe?.notice?.length, 400);
+    assert.ok(unsafe?.notice?.endsWith('...'));
+    // Wrong types are ignored, and a record with nothing usable has no rights at all.
+    assert.equal(rightsOf({ source_license: 'CC-BY', source_rights: [1, 2] }), undefined);
+    assert.equal(rightsOf({ source_license: { id: 7, notice: ' ' } }), undefined);
+    assert.equal(rightsOf({}), undefined);
   });
 
   it('reads further pages until it has everything, and says when it could not', async () => {
@@ -656,15 +758,15 @@ describe('Finance Calendar adapter', () => {
   it('reads the quota the provider reports and a 429 with its wait', async () => {
     const ok = depsFor(() =>
       json(page([event()]), 200, {
-        'X-RateLimit-Limit': '2000',
-        'X-RateLimit-Remaining': '1990',
-        'X-RateLimit-Tier': 'anonymous',
+        'X-RateLimit-Limit': '1000',
+        'X-RateLimit-Remaining': '990',
+        'X-RateLimit-Tier': 'starter',
       }),
     );
     assert.deepEqual((await fetchCalendar(ok.deps, config, window)).quota, {
-      limit: 2000,
-      remaining: 1990,
-      tier: 'anonymous',
+      limit: 1000,
+      remaining: 990,
+      tier: 'starter',
     });
     const limited = depsFor(() =>
       json({ error: 'rate limit exceeded' }, 429, { 'Retry-After': '120' }),

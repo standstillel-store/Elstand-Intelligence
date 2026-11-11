@@ -156,11 +156,12 @@ These are stated here so nobody has to discover them.
   says UNAVAILABLE. Its book rendering is verified against test fixtures, not against a real venue.
 - **The volatility surface has no data adapter**, so its available-state rendering is verified with
   test fixtures only. The fixtures live under `tests/` and cannot be bundled into the product.
-- **Most providers are not verified live.** Only Twelve Data has been run against its live API.
-  Alpha Vantage, FRED, Marketaux and the BEA need keys that were not available, and the
-  development environment cannot reach the hosts of the keyless providers, so their adapters are
-  verified against documented response shapes only. The IMF has no endpoint. See
-  [docs/DATA-INTEGRITY.md](docs/DATA-INTEGRITY.md#what-is-not-verified).
+- **Five providers are not verified live.** Twelve Data, Frankfurter, the World Bank and the BLS
+  have been run against their live APIs from the production deployment. Alpha Vantage, FRED,
+  Marketaux, the BEA and Finance Calendar need keys that were not available (Finance Calendar has no
+  anonymous access: its key comes with a paid plan), so their adapters are verified against
+  documented response shapes only. Until a key is set, each says ENV NOT CONNECTED. The IMF has no
+  endpoint. See [docs/DATA-INTEGRITY.md](docs/DATA-INTEGRITY.md#what-is-not-verified).
 - **Free plans are small.** Twelve Data's Basic plan allows 800 requests a day, which the default
   60-second refresh spends in under two hours of an open page. Raise
   `ELSTAND_REFRESH_SECONDS` or use a larger plan; see

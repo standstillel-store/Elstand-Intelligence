@@ -21,6 +21,7 @@ import {
   failedBlock,
   loadingNotice,
   originNotices,
+  rightsParts,
   screeningNotices,
   unavailableBlock,
 } from './states.js';
@@ -87,6 +88,7 @@ function inspector(event: CalendarEvent): HTMLElement {
           attrs: { href: link, target: '_blank', rel: 'noopener noreferrer' },
         }),
   ]);
+  entries.push(...rightsParts(event.source.rights));
   entries.push(['Retrieved', formatUtcDateTime(event.source.retrievedAt)]);
   return h(
     'dl',

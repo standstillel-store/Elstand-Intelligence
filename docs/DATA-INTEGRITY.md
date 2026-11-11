@@ -275,14 +275,16 @@ reason (`DEPTH_UNAVAILABLE_REASON` in `server/handlers.ts`, plus the instrument'
 Said plainly. **Passing tests with a stand-in for the network does not prove that a live API
 integration works.**
 
-- **Live providers.** Twelve Data has been checked against the live API from the production
-  deployment: authentication, and valid quotes and candles for EUR/USD and XAU/USD. Every other
-  adapter is written from its provider's published documentation and tested against the response
-  shapes it documents. Alpha Vantage, FRED, Marketaux and the BEA need a key that was not available
-  when this was written, so none of them has been run against its live API. Finance Calendar,
-  Frankfurter, the World Bank and the BLS need no key, but the development environment cannot reach
-  their hosts; their live status is in [ENVIRONMENT.md](ENVIRONMENT.md#providers), provider by
-  provider. The IMF has no endpoint.
+- **Live providers.** Four have been checked against their live APIs from the production
+  deployment (2026-11-10 and 2026-11-11): Twelve Data (authentication, quotes for EUR/USD and
+  XAU/USD, hourly candles for EUR/USD) and the three that need no key, Frankfurter, the World Bank
+  and the BLS (its keyless version 1). The values were not compared against the providers' own
+  sites. Five have **not** been run against a live API: Alpha Vantage, FRED, Marketaux and the BEA
+  need a key that was not available when this was written, and so does Finance Calendar, which has
+  no anonymous access (its keyless request, sent before its reference was read again, was refused
+  with HTTP 401). Their adapters are written from the providers' published documentation and tested
+  against the response shapes they document. The IMF has no endpoint. The status of each provider is
+  in [ENVIRONMENT.md](ENVIRONMENT.md#providers).
 - **Free-tier limits** are the ones each provider's documentation states. The ones that could not be
   confirmed against a live account are marked as such there. Elstand's budgets are set below them.
 - **What a screen shows on the production deployment** has not been compared against a provider's own

@@ -127,14 +127,15 @@ export const PROVIDER_SPECS: Readonly<Record<ProviderId, ProviderSpec>> = {
     role: 'primary',
     roleText: 'Primary source of the economic calendar.',
     keyVariable: ENV_FINANCE_CALENDAR_KEY,
-    keyRequirement: 'optional',
+    keyRequirement: 'required',
     baseUrlVariable: null,
     defaultBaseUrl: FINANCE_CALENDAR_BASE,
     consequence: 'Economic calendar events from Finance Calendar are unavailable.',
     limits:
-      'Without a key: 2,000 requests per day per IP address, which a host with shared outbound ' +
-      'addresses may share with other sites. With a free key: 10,000 per day. Use requires a ' +
-      'visible link to financecalendar.com wherever the data is shown.',
+      'No anonymous access: every request needs the API key of a paid plan, and a request without ' +
+      'one is refused with HTTP 401. The Starter plan allows 1,000 requests per day and 25,000 per ' +
+      'month. Use requires a visible link to financecalendar.com wherever the data is shown, and ' +
+      'the credits, licenses and notices supplied with each event.',
   },
   marketaux: {
     id: 'marketaux',
@@ -366,7 +367,8 @@ export function budgetFor(id: ProviderId, env: Env, keyed: boolean): BudgetSpec 
     case 'fred':
       return { perMinute: 60, perDay: null };
     case 'financecalendar':
-      return keyed ? { perMinute: 30, perDay: 9_000 } : { perMinute: 20, perDay: 1_500 };
+      // Starter: 1,000 a day and 25,000 a month. 750 a day is 22,500 over a 30-day month.
+      return { perMinute: 10, perDay: 750 };
     case 'marketaux':
       return { perMinute: 3, perDay: 90 };
     case 'frankfurter':

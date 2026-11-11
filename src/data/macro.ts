@@ -9,11 +9,26 @@
 
 import type { Provenance } from './provenance.js';
 
+/**
+ * What a data provider asks to be kept with an item: the credit it wants shown, the license of
+ * the underlying source and its reuse notice. Every field is the provider's own wording, shown as
+ * written. Elstand composes none of it, and a field the provider did not supply is absent.
+ */
+export interface SourceRights {
+  readonly credit?: string;
+  readonly creditUrl?: string;
+  readonly license?: string;
+  readonly licenseUrl?: string;
+  readonly notice?: string;
+}
+
 export interface SourceAttribution {
   readonly name: string;
   readonly url: string | null;
   /** When Elstand retrieved the item from the source (epoch ms). */
   readonly retrievedAt: number;
+  /** The credit, license and reuse notice the provider supplied with the item, when it did. */
+  readonly rights?: SourceRights;
 }
 
 export type ImpactLevel = 'low' | 'medium' | 'high';

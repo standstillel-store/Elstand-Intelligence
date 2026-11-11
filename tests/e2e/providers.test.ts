@@ -105,9 +105,16 @@ describe('provider status: no environment', () => {
         /ENV NOT CONNECTED — TWELVE_DATA_API_KEY is missing\./,
         'the same sentence the data screens use',
       );
-      for (const id of ['alphavantage', 'fred', 'marketaux', 'bea']) {
+      for (const id of ['alphavantage', 'fred', 'financecalendar', 'marketaux', 'bea']) {
         assert.deepEqual(await states(page, id), ['ENV NOT CONNECTED'], id);
       }
+      const calendar = await text(page, provider('financecalendar'));
+      assert.match(calendar, /FINANCE_CALENDAR_API_KEY is not set\./);
+      assert.match(
+        calendar,
+        /ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing\. Economic calendar events from Finance Calendar are unavailable\./,
+        'the provider has no anonymous access, so a missing key is a missing connection',
+      );
     });
   });
 
@@ -125,13 +132,13 @@ describe('provider status: no environment', () => {
 
   it('shows a provider that needs no key as configured but not verified, never as connected', async () => {
     await withProviders(app, async ({ page }) => {
-      for (const id of ['financecalendar', 'frankfurter', 'worldbank', 'bls']) {
+      for (const id of ['frankfurter', 'worldbank', 'bls']) {
         assert.deepEqual(await states(page, id), [NOT_VERIFIED], id);
       }
       assert.match(await text(page, provider('frankfurter')), /No credential is needed\./);
       assert.match(
-        await text(page, provider('financecalendar')),
-        /FINANCE_CALENDAR_API_KEY is not set; used without a key \(optional\)\./,
+        await text(page, provider('bls')),
+        /BLS_API_KEY is not set; used without a key \(optional\)\./,
       );
       const everything = await text(page, '#providers-panel');
       const withoutEnv = everything.replaceAll('ENV NOT CONNECTED', '');
@@ -161,14 +168,22 @@ describe('provider status: no environment', () => {
 
   it('offers a check only where a request can be made', async () => {
     await withProviders(app, async ({ page }) => {
-      for (const id of ['twelvedata', 'alphavantage', 'fred', 'marketaux', 'bea', 'imf']) {
+      for (const id of [
+        'twelvedata',
+        'alphavantage',
+        'fred',
+        'financecalendar',
+        'marketaux',
+        'bea',
+        'imf',
+      ]) {
         assert.equal(
           await page.locator(`[data-verify="${id}"]`).isDisabled(),
           true,
           `${id} is off`,
         );
       }
-      for (const id of ['financecalendar', 'frankfurter', 'worldbank', 'bls']) {
+      for (const id of ['frankfurter', 'worldbank', 'bls']) {
         assert.equal(await page.locator(`[data-verify="${id}"]`).isEnabled(), true, `${id} is on`);
       }
       assert.equal(await page.locator('[data-verify="imf"]').innerText(), 'No endpoint to check');

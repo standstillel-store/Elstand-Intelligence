@@ -157,8 +157,46 @@ const blsRoute: Route = (call) =>
 // ---- calendar ---------------------------------------------------------------------------------------
 
 describe('GET /api/calendar', () => {
-  it('answers for today and the next seven days without a credential, with its attribution', async () => {
-    const deps = harness({}, calendarRoute());
+  it('is ENV NOT CONNECTED, naming the variable, without the Finance Calendar key, and asks nothing', async () => {
+    // The provider has no anonymous access, so no request is sent without a key.
+    const deps = harness({}, nothing);
+    const response = await handleCalendar(get('/api/calendar'), deps);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('Cache-Control'), 'no-store');
+    assert.equal(deps.fake.calls.length, 0);
+    const parsed = parseCalendar(await bodyOf(response));
+    assert.ok(parsed.ok, parsed.ok ? '' : parsed.error);
+    if (!parsed.ok) return;
+    assert.equal(parsed.value.data, null);
+    assert.equal(parsed.value.provenance.state, 'ENV NOT CONNECTED');
+    assert.equal(
+      parsed.value.provenance.message,
+      'ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing. Economic calendar events from Finance Calendar are unavailable.',
+    );
+  });
+
+  it('says ERROR, not ENV NOT CONNECTED, when the provider refuses the key it was given', async () => {
+    const deps = harness({ [ENV_FINANCE_CALENDAR_KEY]: KEY }, (call) =>
+      call.host === 'www.financecalendar.com'
+        ? json({ error: `A valid API key is required for ${KEY}.` }, 401)
+        : undefined,
+    );
+    const response = await read(await handleCalendar(get('/api/calendar'), deps));
+    const parsed = parseCalendar(response.body);
+    assert.ok(parsed.ok, parsed.ok ? '' : parsed.error);
+    if (!parsed.ok) return;
+    assert.equal(parsed.value.data, null);
+    assert.equal(parsed.value.provenance.state, 'ERROR');
+    assert.equal(
+      parsed.value.provenance.message,
+      'ERROR — Finance Calendar rejected the configured API key (HTTP 401).',
+    );
+    assert.ok(!response.everything.includes(KEY), 'the key never reaches the browser');
+    assert.equal(deps.fake.calls.length, 1, 'a refused key is not retried');
+  });
+
+  it('answers for today and the next seven days with its attribution', async () => {
+    const deps = harness({ [ENV_FINANCE_CALENDAR_KEY]: KEY }, calendarRoute());
     const response = await handleCalendar(get('/api/calendar'), deps);
     assert.equal(response.status, 200);
     assert.match(response.headers.get('Cache-Control') ?? '', PUBLIC_CACHE);
@@ -175,7 +213,7 @@ describe('GET /api/calendar', () => {
     assert.equal(sent?.params['to'], '2026-01-13');
   });
 
-  it('passes a requested window through, and sends the optional key only to the provider', async () => {
+  it('passes a requested window through, and sends the key only to the provider', async () => {
     const deps = harness({ [ENV_FINANCE_CALENDAR_KEY]: KEY }, calendarRoute());
     const response = await handleCalendar(get('/api/calendar?from=2026-01-08&to=2026-01-10'), deps);
     assert.equal(response.status, 200);
@@ -206,7 +244,8 @@ describe('GET /api/calendar', () => {
   });
 
   it('answers 200 with the state when the provider fails, and shares nothing', async () => {
-    const failing = harness({}, () => json({ error: 'down' }, 503));
+    const withKey = { [ENV_FINANCE_CALENDAR_KEY]: KEY };
+    const failing = harness(withKey, () => json({ error: 'down' }, 503));
     const response = await handleCalendar(get('/api/calendar'), failing);
     assert.equal(
       response.status,
@@ -220,7 +259,7 @@ describe('GET /api/calendar', () => {
     assert.equal(parsed.value.data, null);
     assert.equal(parsed.value.provenance.state, 'ERROR');
 
-    const limited = harness({}, () => json({ error: 'slow down' }, 429));
+    const limited = harness(withKey, () => json({ error: 'slow down' }, 429));
     const limitedBody = parseCalendar(
       await bodyOf(await handleCalendar(get('/api/calendar'), limited)),
     );

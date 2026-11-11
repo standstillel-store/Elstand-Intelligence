@@ -33,7 +33,7 @@ reached (see [Verifying a provider](#first-connection-checklist)).
 | `TWELVE_DATA_CREDITS_PER_DAY`    | no      | `800`                            | The same budget per day. A plain whole number, clamped to **1 to 10000000**; anything else falls back to the default.                                                                                                                                                                                                                                                                   |
 | `ALPHA_VANTAGE_API_KEY`          | **yes** | unset                            | Alpha Vantage key. Enables the fallback for daily candles and spot quotes. Unset: the fallback is off and the rest is unaffected.                                                                                                                                                                                                                                                       |
 | `FRED_API_KEY`                   | **yes** | unset                            | FRED key (32 lowercase letters and digits). Unset: policy rates and inflation indices are ENV NOT CONNECTED.                                                                                                                                                                                                                                                                            |
-| `FINANCE_CALENDAR_API_KEY`       | **yes** | unset                            | Finance Calendar key. **Optional**: the calendar is requested without a key, under a smaller daily allowance. A key raises the allowance.                                                                                                                                                                                                                                               |
+| `FINANCE_CALENDAR_API_KEY`       | **yes** | unset                            | Finance Calendar key, from a paid plan: the provider has no anonymous access. Unset: the economic calendar is ENV NOT CONNECTED and Surface VI event waves are disabled.                                                                                                                                                                                                                |
 | `MARKETAUX_API_KEY`              | **yes** | unset                            | Marketaux key. Unset: financial news is ENV NOT CONNECTED.                                                                                                                                                                                                                                                                                                                              |
 | `FRANKFURTER_API_BASE_URL`       | no      | `https://api.frankfurter.dev/v1` | Optional override of the Frankfurter address, for a copy you host yourself. Must be an https address with no credentials, query or fragment.                                                                                                                                                                                                                                            |
 | `WORLD_BANK_API_BASE_URL`        | no      | `https://api.worldbank.org/v2`   | Optional override of the World Bank address. The same rule applies.                                                                                                                                                                                                                                                                                                                     |
@@ -64,7 +64,7 @@ never offered as an intraday candle, and Alpha Vantage is never a blind fallback
 | Twelve Data                      | `TWELVE_DATA_API_KEY`      | required   | Forex market data            | `server/twelvedata.ts`      |
 | Alpha Vantage                    | `ALPHA_VANTAGE_API_KEY`    | required   | Forex market data            | `server/alphavantage.ts`    |
 | FRED                             | `FRED_API_KEY`             | required   | Macro observations           | `server/fred.ts`            |
-| Finance Calendar                 | `FINANCE_CALENDAR_API_KEY` | optional   | Economic calendar            | `server/financecalendar.ts` |
+| Finance Calendar                 | `FINANCE_CALENDAR_API_KEY` | required   | Economic calendar            | `server/financecalendar.ts` |
 | Marketaux                        | `MARKETAUX_API_KEY`        | required   | Financial news               | `server/marketaux.ts`       |
 | Frankfurter                      | `FRANKFURTER_API_BASE_URL` | none       | Exchange-rate reference data | `server/frankfurter.ts`     |
 | World Bank                       | `WORLD_BANK_API_BASE_URL`  | none       | Macro observations           | `server/worldbank.ts`       |
@@ -97,7 +97,7 @@ through the shared request path in `server/service.ts`.
 - **When missing:** the whole terminal says ENV NOT CONNECTION. Wording: ENV NOT CONNECTED — TWELVE_DATA_API_KEY is missing. Forex quotes and candles from Twelve Data are unavailable.
 - **When the key is rejected:** the provider answers HTTP 401. The terminal turns ENV NOT CONNECTION with the provider's refusal as the detail, and the server does not ask again for a minute.
 - **When rate limited:** RATE LIMITED. If Elstand's own budget held the request back, the words say that nothing was sent; if the provider refused, they say it rejected the request. The last verified data stays on screen, labelled CACHED, then STALE.
-- **Live check:** verified from the production deployment: authentication, and valid quotes and candles for EUR/USD and XAU/USD.
+- **Live check:** verified from the production deployment: authentication, and valid quotes and candles for EUR/USD and XAU/USD. Repeated on 2026-11-11 against the deployment of commit `1fd8290`: `/api/quotes?ids=EURUSD,XAUUSD` returned both quotes (DELAYED, fresh), and `/api/candles?id=EURUSD&tf=H1` returned hourly bars with whole-hour UTC open times. The plan's terms for public display of the data have not been confirmed (see [Licensing](#licensing)).
 
 ### Alpha Vantage
 
@@ -126,16 +126,17 @@ through the shared request path in `server/service.ts`.
 
 ### Finance Calendar
 
-- **Credential:** optional (secret): `FINANCE_CALENDAR_API_KEY`. Without it the calendar is requested keyless; the provider page says "FINANCE_CALENDAR_API_KEY is not set; used without a key (optional)."
-- **Official source:** [financecalendar.com](https://www.financecalendar.com).
+- **Credential:** required (secret): `FINANCE_CALENDAR_API_KEY`. The provider has no anonymous access: the key belongs to a paid plan.
+- **Official source:** [Finance Calendar API reference](https://www.financecalendar.com/api/reference/) and [service terms](https://www.financecalendar.com/?p=3216).
 - **Used by:** `server/financecalendar.ts` (the adapter) and `server/feeds-service.ts`.
 - **Capability:** Economic calendar. Impact is the source's own rating; Elstand assigns none. An event the source gave no rating is shown as UNCLASSIFIED (NOT RATED in Surface VI).
-- **Limits (verified):** Without a key: 2,000 requests per day per IP address, which a host with shared outbound addresses may share with other sites. With a free key: 10,000 per day. Use requires a visible link to financecalendar.com wherever the data is shown.
-- **How Elstand spends it:** keyless, 20 a minute and 1,500 a day; with a key, 30 a minute and 9,000 a day. The calendar is kept for 15 minutes (`ELSTAND_TTL_CALENDAR_SECONDS`).
+- **Limits (verified):** No anonymous access: every request needs the API key of a paid plan, and a request without one is refused with HTTP 401. The Starter plan allows 1,000 requests per day and 25,000 per month. Use requires a visible link to financecalendar.com wherever the data is shown, and the credits, licenses and notices supplied with each event.
+- **How Elstand spends it:** 10 a minute and 750 a day, which is 22,500 over a 30-day month against the Starter plan's 25,000. The calendar is kept for 15 minutes (`ELSTAND_TTL_CALENDAR_SECONDS`). A larger plan allows more; the budget does not change by itself.
+- **Credits, licenses and notices:** the terms ask for the publisher links, source licenses, credits and reuse notices supplied with records to be kept. The adapter keeps `source_url`, and from `source_license` and `source_rights` the credit, its link, the license, its link and the notice, in the provider's own words (`source.rights`). The calendar list and the Surface VI details show them with the event. Nothing is composed, and an event without them shows none.
 - **Verify:** `/api/calendar` returns events with their source and retrieval time. `/api/providers?probe=financecalendar` makes one real request. The data screens show the required link to the source.
-- **When missing:** nothing is missing: the key is optional. If the keyless request fails, the calendar and Surface VI say ERROR with the reason, and Surface VI event waves are disabled.
-- **When rejected:** ERROR with the provider's refusal. A key you gave is not silently dropped in favor of keyless access.
-- **Live check:** not live-tested from the development environment, which cannot reach the provider's host. The production deployment is where it is checked.
+- **When missing:** ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing. Economic calendar events from Finance Calendar are unavailable. Surface VI then says, word for word: ENV NOT CONNECTED — Economic calendar provider unavailable. Surface VI event waves are disabled. Nothing is requested and nothing is drawn.
+- **When rejected:** ERROR with the provider's refusal: HTTP 401 for a missing or invalid key, 403 for a revoked key or a disallowed account, and HTTP 402 when the account needs payment to activate or renew access. A refused key is not retried.
+- **Live check:** **not live-tested with a key**: none was available. What was observed on the production deployment (2026-11-10, 23:28 UTC): the first version of this adapter sent the request **without** a key, on the strength of an earlier reading of the provider's documentation, and the provider refused it with HTTP 401. That is why the key is now required. The documented response fields, including `source_license` and `source_rights`, are tested with stand-ins only, which does not prove the live integration.
 
 ### Marketaux
 
@@ -158,7 +159,7 @@ through the shared request path in `server/service.ts`.
 - **Limits (verified):** No key and no documented rate limit. Elstand keeps to 30 requests per minute. Rates are published once per ECB working day.
 - **Verify:** `/api/rates` returns the rates with their reference date. `/api/providers?probe=frankfurter` makes one real request.
 - **When missing:** nothing is missing. If the request fails, the reference-rate panel says ERROR with the reason; an override that is not a valid https address is reported as ERROR and not used.
-- **Live check:** not live-tested from the development environment, which cannot reach the provider's host. The production deployment is where it is checked.
+- **Live check:** verified on the production deployment of commit `1fd8290` on 2026-11-10 and 2026-11-11: `/api/rates` returned the ECB reference rates for AUD, CAD, CHF, EUR, GBP, JPY and NZD per U.S. dollar, dated 2026-11-10, state DELAYED, and `/api/providers?probe=frankfurter` reported that Frankfurter answered and its data passed validation (no credential is involved). A value was not compared against the provider's own site.
 
 ### World Bank
 
@@ -169,7 +170,7 @@ through the shared request path in `server/service.ts`.
 - **Limits (verified):** No key and no documented rate limit. Elstand keeps to 30 requests per minute. Values are annual and arrive well after the year they describe.
 - **Verify:** `/api/macro?provider=worldbank` returns the observations with their source link. `/api/providers?probe=worldbank` makes one real request.
 - **When missing:** nothing is missing. If the request fails, the series say ERROR with the reason.
-- **Live check:** not live-tested from the development environment, which cannot reach the provider's host. The production deployment is where it is checked.
+- **Live check:** verified on the production deployment of commit `1fd8290` on 2026-11-10 and 2026-11-11: `/api/macro?provider=worldbank` returned GDP growth and consumer-price inflation for eight economies, two annual values each, and `/api/providers?probe=worldbank` reported that the World Bank answered and its data passed validation (no credential is involved). The answer was labelled STALE as a whole because the newest United States inflation value the World Bank had was for 2024, more than 800 days old; the other series were DELAYED with 2025 values. Values were not compared against the provider's own site.
 
 ### IMF Data
 
@@ -192,7 +193,7 @@ through the shared request path in `server/service.ts`.
 - **How Elstand spends it:** keyless, 5 a minute and 20 a day; with a key, 20 a minute and 400 a day. The three series are one request, kept for 6 hours (`ELSTAND_TTL_MACRO_SECONDS`).
 - **Verify:** `/api/macro?provider=bls` returns the observations. `/api/providers?probe=bls` makes one real request.
 - **When missing:** nothing is missing: the key is optional. If the request fails or the daily query allowance is spent, the series say ERROR or RATE LIMITED with the last verified data and its time.
-- **Live check:** not live-tested from the development environment, which cannot reach the provider's host. The production deployment is where it is checked.
+- **Live check:** verified **without a key** (version 1) on the production deployment of commit `1fd8290` on 2026-11-10 and 2026-11-11: `/api/macro?provider=bls` returned the unemployment rate, total nonfarm payrolls and the CPI through October 2026, state DELAYED, and `/api/providers?probe=bls` reported that the BLS answered and its data passed validation. A month BLS did not publish (October 2025 in the unemployment and CPI series) is absent, not filled in. The version 2 endpoint, used with a key, has not been tried. Values were not compared against the provider's own site.
 
 ### U.S. Bureau of Economic Analysis
 
@@ -216,7 +217,7 @@ through the shared request path in `server/service.ts`.
 | Provider request limit reached                                                                                                   | 429 `rate_limited`, with `Retry-After` when the provider sends one        | The affected panel shows RATE LIMITED and a Retry button. The connection stays up. The server remembers the limit for 15 seconds instead of asking again.                                                                                                                |
 | Provider unreachable, or it returned data that failed validation                                                                 | 504 `provider_unreachable`, or 502 `provider_error`                       | The affected panel shows the failure and a Retry button. Nothing is repaired or filled in.                                                                                                                                                                               |
 | `/api/status` itself fails (a JSON error, a network failure, a malformed status body)                                            | varies                                                                    | **SERVER ERROR** with a Retry button. This is deliberately different from ENV NOT CONNECTION: the environment may be fine, the server is not answering properly.                                                                                                         |
-| Another keyed provider (FRED, Marketaux, BEA, Alpha Vantage) has no key                                                          | HTTP 200 with `provenance.state` `ENV NOT CONNECTED` and no data          | Only that provider's panels say ENV NOT CONNECTION, and the sentence names the variable, for example: ENV NOT CONNECTED — FRED_API_KEY is missing. Macro observations from FRED are unavailable. The rest of the terminal is unaffected.                                 |
+| Another keyed provider (FRED, Marketaux, BEA, Alpha Vantage, Finance Calendar) has no key                                        | HTTP 200 with `provenance.state` `ENV NOT CONNECTED` and no data          | Only that provider's panels say ENV NOT CONNECTION, and the sentence names the variable, for example: ENV NOT CONNECTED — FRED_API_KEY is missing. Macro observations from FRED are unavailable. The rest of the terminal is unaffected.                                 |
 | A provider that was answered earlier cannot be asked now (limit, outage)                                                         | HTTP 200 with the last verified answer and `cache` `stale-if-error`       | CACHED with the time of the last verified retrieval, then STALE once that answer is older than its freshness window. The words say which.                                                                                                                                |
 | A dataset with no supported endpoint (the IMF)                                                                                   | HTTP 200 with `provenance.state` `UNAVAILABLE` and no data                | UNAVAILABLE — No supported public endpoint is configured for this dataset.                                                                                                                                                                                               |
 
@@ -288,10 +289,14 @@ responsibility, and the application cannot check it.
   `Cache-Control` headers let a CDN share answers across them.
 - `ELSTAND_FEED_REALTIME=true` is your statement that the plan delivers real-time forex. If it does
   not, the interface would call delayed data LIVE. Do not set it on a guess.
-- Finance Calendar requires a visible link to its site wherever its data is shown; the calendar
-  screens carry it. Every other provider has its own terms on commercial use, redistribution,
-  caching and attribution. They have not been reviewed on your behalf: confirm them for your use
-  before a public deployment.
+- Finance Calendar has no anonymous access: its API needs the key of a paid plan. Its terms ask for
+  a visible link to its site wherever its data is shown, and for the publisher links, source
+  licenses, credits and reuse notices supplied with each record to be kept; the calendar screens
+  carry the link and show what each event supplied. They allow use in your own tools, apps and
+  products within the plan's allowances, and caching on your own servers. Read them for the plan you
+  hold. Every other provider has its own terms on commercial use, redistribution, caching and
+  attribution. They have not been reviewed on your behalf: confirm them for your use before a
+  public deployment.
 
 ## First-connection checklist
 

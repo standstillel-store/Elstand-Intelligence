@@ -18,6 +18,7 @@ import {
   failedBlock,
   loadingNotice,
   originNotices,
+  rightsParts,
   screeningNotices,
   unavailableBlock,
 } from './states.js';
@@ -102,6 +103,17 @@ function sourceLine(source: SourceAttribution): HTMLElement {
   );
 }
 
+/** The credit, license and reuse notice the provider supplied with the item, when it did. */
+function rightsLine(source: SourceAttribution): HTMLElement | null {
+  const parts = rightsParts(source.rights);
+  if (parts.length === 0) return null;
+  return h(
+    'div',
+    { class: 'feed__meta', attrs: { 'data-source-rights': '' } },
+    ...parts.map(([label, value]) => h('span', {}, `${label}: `, value)),
+  );
+}
+
 function interpretation(text: string | null): HTMLElement | null {
   if (text === null) return null;
   return h(
@@ -182,6 +194,7 @@ export function calendarItem(event: CalendarEvent, zone: string): HTMLElement {
     h('h4', { class: 'feed__title', text: event.title }),
     figures(event),
     sourceLine(event.source),
+    rightsLine(event.source),
     interpretation(event.elvoidInterpretation),
   );
 }

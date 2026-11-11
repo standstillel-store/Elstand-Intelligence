@@ -76,7 +76,7 @@ export function loadCalendar(
     load: (ready) =>
       fetchCalendar(
         httpOf(deps),
-        { baseUrl: ready.baseUrl, apiKey: ready.apiKey },
+        { baseUrl: ready.baseUrl, apiKey: credentialOf(ready) },
         { fromMs: days.fromMs, toMs: days.toMs },
       ),
   });

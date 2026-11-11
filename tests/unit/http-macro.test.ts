@@ -180,6 +180,72 @@ describe('the calendar feed', () => {
       (error: unknown) => error instanceof ApiClientError && error.code === 'bad_response',
     );
   });
+
+  describe('the credit, license and reuse notice that come with an event', () => {
+    const eventWith = (source: Record<string, unknown>) => ({
+      id: 'financecalendar:101',
+      timeMs: NOW + 60 * MINUTE,
+      currency: 'USD',
+      country: 'US',
+      title: 'Consumer Price Index (YoY)',
+      impact: { level: 'high', classifiedBy: 'Finance Calendar impact rating' },
+      actual: null,
+      forecast: null,
+      previous: '2.7%',
+      source: { name: 'Finance Calendar', url: null, retrievedAt: NOW, ...source },
+      elvoidInterpretation: null,
+    });
+
+    it('keeps them exactly as the server sent them', async () => {
+      const rights = {
+        credit: 'Data: Example Statistics Office',
+        creditUrl: 'https://stats.example.org/',
+        license: 'CC-BY-4.0',
+        licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
+        notice: 'Reuse is allowed with credit.',
+      };
+      const api = fakeApi(() =>
+        calendarAnswer({ events: [eventWith({ rights }), eventWith({ rights: { notice: 'n' } })] }),
+      );
+      const feed = createHttpMacroFeed(options(api, recorder()));
+      const result = await feed.getCalendar({ fromMs: NOW, toMs: NOW + 1 }, SIGNAL);
+      assert.equal(result.status, 'available');
+      if (result.status !== 'available') return;
+      assert.deepEqual(result.items[0]?.source.rights, rights);
+      assert.deepEqual(result.items[1]?.source.rights, { notice: 'n' });
+    });
+
+    it('shows an event that has none as having none, not as having empty ones', async () => {
+      const api = fakeApi(() => calendarAnswer({ events: [eventWith({})] }));
+      const feed = createHttpMacroFeed(options(api, recorder()));
+      const result = await feed.getCalendar({ fromMs: NOW, toMs: NOW + 1 }, SIGNAL);
+      assert.equal(result.status, 'available');
+      if (result.status !== 'available') return;
+      assert.equal(result.items[0]?.source.rights, undefined);
+      assert.ok(!('rights' in (result.items[0]?.source ?? {})));
+    });
+
+    it('refuses an answer whose rights are not text, rather than showing a guess', async () => {
+      for (const rights of [
+        'CC-BY',
+        null,
+        { credit: 7 },
+        { license: '' },
+        { licenseUrl: ['https://x.example/'] },
+        { notice: { text: 'n' } },
+      ]) {
+        const api = fakeApi(() => calendarAnswer({ events: [eventWith({ rights })] }));
+        const sink = recorder();
+        const feed = createHttpMacroFeed(options(api, sink));
+        await assert.rejects(
+          feed.getCalendar({ fromMs: NOW, toMs: NOW + 1 }, SIGNAL),
+          (error: unknown) => error instanceof ApiClientError && error.code === 'bad_response',
+          JSON.stringify(rights),
+        );
+        assert.equal(sink.seen.length, 0);
+      }
+    });
+  });
 });
 
 describe('the news feed', () => {

@@ -170,6 +170,11 @@ describe('Surface VI: waves from a connected calendar', () => {
         /Surprise/,
         'no surprise is shown without two figures to compute it',
       );
+      assert.doesNotMatch(
+        given,
+        /Credit|License|Notice/,
+        'an event whose provider supplied no credit, license or notice shows none',
+      );
 
       await page.locator(`${row('ev-3')} summary`).click();
       const sparse = await text(page, `${row('ev-3')} dl`);
@@ -179,6 +184,40 @@ describe('Surface VI: waves from a connected calendar', () => {
         /Actual|Forecast|Previous/,
         'a figure the source did not give is not shown',
       );
+    });
+  });
+
+  it('shows the credit, license and notice the source supplied with the event, linking only safe addresses', async () => {
+    await withWaves({ calendar: 'available' }, async ({ page }) => {
+      await page.waitForSelector(`${PANEL} details[data-event-id]`);
+      await page.locator(`${row('ev-4')} summary`).click();
+      const given = await text(page, `${row('ev-4')} dl`);
+      assert.match(given, /Credit\s*Fixture credit line/);
+      assert.match(given, /License\s*Fixture license/);
+      assert.match(given, /Notice\s*Fixture reuse notice supplied for the test\./);
+      assert.deepEqual(
+        await page.$$eval(`${row('ev-4')} dl a`, (nodes) =>
+          nodes.map((node) => `${node.textContent}|${node.getAttribute('href')}`),
+        ),
+        [
+          'Fixture calendar|https://example.invalid/source',
+          'Fixture credit line|https://example.invalid/credit',
+          'Fixture license|https://example.invalid/license',
+        ],
+        'the source, the credit and the license are links; nothing else in the list is',
+      );
+
+      await page.locator('#waves-all').check();
+      await page.locator(`${row('ev-3')} summary`).click();
+      assert.match(await text(page, `${row('ev-3')} dl`), /Credit\s*Fixture credit with an unsafe/);
+      assert.deepEqual(
+        await page.$$eval(`${row('ev-3')} dl a`, (nodes) =>
+          nodes.map((node) => node.getAttribute('href')),
+        ),
+        ['https://example.invalid/source'],
+        'an address that is not a web address is text, never a link: only the source is linked',
+      );
+      assert.equal(await page.locator(`${PANEL} [href^="javascript"]`).count(), 0);
     });
   });
 

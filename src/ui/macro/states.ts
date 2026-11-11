@@ -2,7 +2,7 @@ import { formatUtcDateTime } from '../../core/format.js';
 import type { ProviderState } from '../../core/provider-state.js';
 import { safeHttpUrl } from '../../core/url.js';
 import type { Screened } from '../../data/macro-validate.js';
-import type { FeedOrigin } from '../../data/macro.js';
+import type { FeedOrigin, SourceRights } from '../../data/macro.js';
 import { envNotConnected, button, notice, type NoticeTone } from '../parts.js';
 import { h } from '../dom.js';
 
@@ -108,6 +108,29 @@ export function attributionLine(origin: FeedOrigin | undefined): HTMLElement | n
       : h('a', { text: name, attrs: { href: link, target: '_blank', rel: 'noopener noreferrer' } }),
     retrieved === null ? null : ` · retrieved ${formatUtcDateTime(retrieved)}`,
   );
+}
+
+function linked(text: string, address: string | undefined): string | HTMLElement {
+  const link = address === undefined ? null : safeHttpUrl(address);
+  return link === null
+    ? text
+    : h('a', { text, attrs: { href: link, target: '_blank', rel: 'noopener noreferrer' } });
+}
+
+/**
+ * The credit, license and reuse notice a data provider supplied with an item, as labelled parts.
+ * They are the provider's own words, shown as written, and an address becomes a link only when it
+ * is safe. Nothing is composed here, and an item without any of it has no parts.
+ */
+export function rightsParts(rights: SourceRights | undefined): [string, string | HTMLElement][] {
+  if (rights === undefined) return [];
+  const parts: [string, string | HTMLElement][] = [];
+  const credit = rights.credit ?? rights.creditUrl;
+  if (credit !== undefined) parts.push(['Credit', linked(credit, rights.creditUrl)]);
+  const license = rights.license ?? rights.licenseUrl;
+  if (license !== undefined) parts.push(['License', linked(license, rights.licenseUrl)]);
+  if (rights.notice !== undefined) parts.push(['Notice', rights.notice]);
+  return parts;
 }
 
 /**

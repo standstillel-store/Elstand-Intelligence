@@ -3,6 +3,7 @@ import type {
   EventStatus,
   EventSurprise,
   ImpactClassification,
+  SourceRights,
 } from '../src/data/macro.js';
 import { ApiFailure } from './errors.js';
 import {
@@ -27,8 +28,12 @@ import { callProvider, sanitizeText, type HttpDeps } from './provider-http.js';
  *   -> { events: [ { id, name, country, impact, date, release_at_utc, status, consensus, prior,
  *                    actual, unit, release_stage, source_name, source_url, ... } ], count, total }
  *
- * A key is optional. Without one the API allows 2,000 requests per day per IP address; with a
- * free key (`X-API-Key` header, so the key never appears in an address) 10,000.
+ * A key is REQUIRED. The provider's API reference says "Every programmatic data or metadata
+ * request requires a valid API key" and gives no anonymous allowance, and the production
+ * deployment's keyless request was refused with HTTP 401 (docs/ENVIRONMENT.md). The key goes in the
+ * `X-API-Key` header, so it never appears in an address. Allowances belong to the plan and are
+ * shared by its keys: Starter is 1,000 requests per day and 25,000 per month. A 402 means the
+ * account needs payment to activate or renew access.
  *
  * What is and is not taken from the answer:
  *  - A time is exact only when `release_at_utc` is set. A row with a date and no instant keeps
@@ -39,6 +44,9 @@ import { callProvider, sanitizeText, type HttpDeps } from './provider-http.js';
  *  - `consensus` becomes the forecast, exactly as supplied. The API says it does not collect
  *    consensus estimates yet, so the forecast is usually empty, and then so is the surprise.
  *  - Figures are shown as the provider wrote them. Nothing is converted between units.
+ *  - The provider's terms ask for the publisher links, source licenses, credits and reuse notices
+ *    supplied with records to be kept. `source_license` and `source_rights` travel with the event
+ *    as `source.rights`, in the provider's own words (`rightsOf`). Nothing is composed.
  *
  * The data may only be shown with a visible link to financecalendar.com; the link travels with
  * every answer (`CALENDAR_ATTRIBUTION`) so the interface never has to hard-code it.
@@ -74,8 +82,8 @@ export const CURRENCY_OF_COUNTRY: Readonly<Record<string, string>> = {
 
 export interface FinanceCalendarConfig {
   readonly baseUrl: string;
-  /** The optional key. Null uses the keyless allowance. */
-  readonly apiKey: string | null;
+  /** The API key of a plan. The provider has no anonymous access. */
+  readonly apiKey: string;
 }
 
 export interface CalendarWindow {
@@ -116,6 +124,43 @@ const STATUS_OF: Readonly<Record<string, EventStatus>> = {
   cancelled: 'cancelled',
   canceled: 'cancelled',
 };
+
+/** The most a credit line or a license name may hold, and the most a reuse notice may hold. */
+const CREDIT_MAX = 200;
+const LICENSE_MAX = 80;
+const NOTICE_MAX = 400;
+
+const NO_FIELDS: Readonly<Record<string, unknown>> = {};
+
+/**
+ * What the provider supplied for keeping with a record: the credit it asks for, the license of
+ * the underlying source and its reuse notice. `source_license` is read first and `source_rights`
+ * fills what it left out. Each value is the provider's own text with control characters removed
+ * and its length bounded, and each link must be an https address; anything else is dropped, not
+ * repaired. Nothing is composed here, so a record without any of it has no `rights`.
+ */
+export function rightsOf(row: Readonly<Record<string, unknown>>): SourceRights | undefined {
+  const license = isRecord(row['source_license']) ? row['source_license'] : NO_FIELDS;
+  const rights = isRecord(row['source_rights']) ? row['source_rights'] : NO_FIELDS;
+  const credit =
+    cleanLabel(license['attribution'], CREDIT_MAX) ?? cleanLabel(rights['attribution'], CREDIT_MAX);
+  const creditUrl = safeHttpsUrl(license['attribution_url']);
+  const licenseName = cleanLabel(license['id'], LICENSE_MAX);
+  const licenseUrl =
+    safeHttpsUrl(license['url']) ??
+    safeHttpsUrl(license['terms_url']) ??
+    safeHttpsUrl(rights['terms_url']);
+  const notice =
+    cleanLabel(license['notice'], NOTICE_MAX) ?? cleanLabel(rights['notice'], NOTICE_MAX);
+  const found: SourceRights = {
+    ...(credit === null ? {} : { credit }),
+    ...(creditUrl === null ? {} : { creditUrl }),
+    ...(licenseName === null ? {} : { license: licenseName }),
+    ...(licenseUrl === null ? {} : { licenseUrl }),
+    ...(notice === null ? {} : { notice }),
+  };
+  return Object.keys(found).length === 0 ? undefined : found;
+}
 
 function impactOf(value: unknown): ImpactClassification | null {
   if (typeof value !== 'string') return null;
@@ -217,6 +262,7 @@ function parseEvent(row: unknown, index: number, retrievedAt: number): EventPars
   const surprise = surpriseOf(actual, forecast, unit);
   const sourceName = cleanLabel(row['source_name'], 80);
   const link = safeHttpsUrl(row['source_url']) ?? safeHttpsUrl(row['url']);
+  const sourceRights = rightsOf(row);
 
   const event: CalendarEvent = {
     id: eventId,
@@ -237,6 +283,7 @@ function parseEvent(row: unknown, index: number, retrievedAt: number): EventPars
         sourceName === null ? FINANCE_CALENDAR_LABEL : `${FINANCE_CALENDAR_LABEL} · ${sourceName}`,
       url: link,
       retrievedAt,
+      ...(sourceRights === undefined ? {} : { rights: sourceRights }),
     },
     elvoidInterpretation: null,
   };
@@ -284,6 +331,12 @@ function recognizeCalendarError(
         `${FINANCE_CALENDAR_LABEL} rejected the configured API key (HTTP ${status}).`,
       );
     }
+    if (status === 402) {
+      return new ApiFailure(
+        'provider_auth',
+        `${FINANCE_CALENDAR_LABEL} says this account needs payment to activate or renew API access (HTTP 402).`,
+      );
+    }
     if (status >= 500) return null;
     return new ApiFailure(
       'provider_error',
@@ -307,8 +360,8 @@ export async function fetchCalendar(
   if (window.toMs - window.fromMs > 90 * DAY_MS) {
     throw new ApiFailure('bad_request', 'The calendar window is longer than the provider allows.');
   }
-  const secrets = config.apiKey === null ? [] : [config.apiKey];
-  const headers = config.apiKey === null ? {} : { 'X-API-Key': config.apiKey };
+  const secrets = [config.apiKey];
+  const headers = { 'X-API-Key': config.apiKey };
 
   const events: CalendarEvent[] = [];
   const excluded: ExcludedEvent[] = [];

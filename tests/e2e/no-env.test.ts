@@ -100,6 +100,13 @@ const ENV_REGIONS: readonly {
     note: /^ENV NOT CONNECTED — FRED_API_KEY is missing\. Macro observations from FRED are unavailable\.$/,
   },
   {
+    name: 'economic calendar',
+    hash: '#/macro/news-calendar',
+    scope: '#calendar-panel',
+    detail: 'A calendar provider is not connected.',
+    note: /^ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing\. Economic calendar events from Finance Calendar are unavailable\.$/,
+  },
+  {
     name: 'news',
     hash: '#/macro/news-calendar',
     scope: '#news-panel',
@@ -486,17 +493,27 @@ describe('no env: every data region says ENV NOT CONNECTION', () => {
     });
   }
 
-  it('economic calendar: needs no credential, so it is asked, and with no network it says ERROR in words', async () => {
-    await withPage('#/macro/news-calendar', async ({ page }) => {
+  it('economic calendar: the provider has no anonymous access, so with no key nothing is asked and no event is listed', async () => {
+    await withPage('#/macro/news-calendar', async ({ page, requested }) => {
       const panel = page.locator('#calendar-panel');
-      await panel.getByText('ERROR — Could not reach Finance Calendar.').waitFor();
-      assert.equal(
-        await panel.locator('.env-block').count(),
-        0,
-        'a provider that needs no key is never reported as not connected for want of one',
-      );
+      await panel.locator('.env-block__label').waitFor();
+      assert.equal(await panel.locator('.env-block').count(), 1);
       assert.equal(await panel.locator('article').count(), 0, 'no event is listed');
-      assert.equal(await panel.getByRole('button', { name: 'Retry' }).isVisible(), true);
+      assert.equal(
+        await panel.getByRole('button', { name: 'Retry' }).count(),
+        0,
+        'a retry cannot supply a missing key',
+      );
+      const shown = await text(page, '#calendar-panel');
+      assert.match(
+        shown,
+        /ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing\. Economic calendar events from Finance Calendar are unavailable\./,
+      );
+      assert.doesNotMatch(shown, /ERROR/, 'a missing key is not reported as a failed request');
+      assert.ok(
+        requested.every((url) => url.startsWith(app.url)),
+        'every request stayed on this origin; no provider was contacted from the browser',
+      );
     });
   });
 
@@ -1325,7 +1342,7 @@ describe('no env: the server', () => {
         'alphavantage:env-not-connected',
         'bea:env-not-connected',
         'bls:ready',
-        'financecalendar:ready',
+        'financecalendar:env-not-connected',
         'frankfurter:ready',
         'fred:env-not-connected',
         'imf:no-endpoint',
