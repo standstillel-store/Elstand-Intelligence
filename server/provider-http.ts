@@ -39,11 +39,19 @@ export interface ProviderCall {
   readonly maxBytes?: number;
   /** Recognizes the provider's own error envelope, which several providers send with HTTP 200. */
   readonly recognizeError?: (status: number, body: unknown) => ApiFailure | null;
+  /**
+   * The `ETag` of an answer this server already holds. When it is a well-formed entity tag it is
+   * sent as `If-None-Match`, and a `304` then says the held answer is still the provider's.
+   */
+  readonly ifNoneMatch?: string;
 }
 
 export interface ProviderResponse {
+  /** The parsed JSON body. Null when the provider answered `304 Not Modified`. */
   readonly body: unknown;
   readonly status: number;
+  /** True for a `304`: the provider confirmed that the answer sent with `ifNoneMatch` still holds. */
+  readonly notModified: boolean;
   /** One response header, case-insensitively, or null. Used for quota headers only. */
   readonly header: (name: string) => string | null;
 }
@@ -59,6 +67,11 @@ export function sanitizeText(text: string, secrets: readonly string[]): string {
     .replace(/\s+/g, ' ')
     .trim();
   return clean.length > 240 ? `${clean.slice(0, 237)}...` : clean;
+}
+
+/** An HTTP entity tag as RFC 9110 writes it: `"abc"` or `W/"abc"`, nothing else. */
+export function isEntityTag(text: string): boolean {
+  return /^(?:W\/)?"[\x21\x23-\x7e]*"$/.test(text);
 }
 
 /** `Retry-After` is either whole seconds or an HTTP date. Returns whole seconds, or null. */
@@ -172,6 +185,9 @@ export async function callProvider(deps: HttpDeps, call: ProviderCall): Promise<
   const method = call.method ?? 'GET';
   const headers: Record<string, string> = { Accept: 'application/json', ...call.headers };
   if (call.jsonBody !== undefined) headers['Content-Type'] = 'application/json';
+  if (call.ifNoneMatch !== undefined && isEntityTag(call.ifNoneMatch)) {
+    headers['If-None-Match'] = call.ifNoneMatch;
+  }
 
   let response: Response;
   try {
@@ -186,6 +202,13 @@ export async function callProvider(deps: HttpDeps, call: ProviderCall): Promise<
     throw new ApiFailure('provider_unreachable', `Could not reach ${call.label}.`, null, {
       retryable: true,
     });
+  }
+
+  const header = (name: string): string | null => response.headers.get(name);
+  if (response.status === 304) {
+    // No body is read: a 304 has none. The caller holds the answer it sent the tag for.
+    await response.body?.cancel().catch(() => undefined);
+    return { body: null, status: 304, notModified: true, header };
   }
 
   let text: string | null;
@@ -223,5 +246,5 @@ export async function callProvider(deps: HttpDeps, call: ProviderCall): Promise<
   if (!isJson) {
     throw new ApiFailure('provider_error', `${call.label} did not answer with JSON.`);
   }
-  return { body, status: response.status, header: (name) => response.headers.get(name) };
+  return { body, status: response.status, notModified: false, header };
 }

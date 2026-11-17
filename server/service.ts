@@ -144,7 +144,7 @@ export function unreadyProvenance(
   const state: ProviderState =
     reading.kind === 'env-missing'
       ? 'ENV NOT CONNECTED'
-      : reading.kind === 'no-endpoint'
+      : reading.kind === 'no-endpoint' || reading.kind === 'license-gated'
         ? 'UNAVAILABLE'
         : 'ERROR';
   return {

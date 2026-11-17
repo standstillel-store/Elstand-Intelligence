@@ -158,7 +158,7 @@ const LINE_RULES: readonly LineRule[] = [
       'The browser code must not know the provider key or read an environment. Secrets live on the server only.',
     appliesTo: isBrowserCode,
     pattern:
-      /(?:TWELVE_DATA|ALPHA_VANTAGE|FRED|FINANCE_CALENDAR|MARKETAUX|BLS|BEA)_API_KEY|\bprocess\s*\.\s*env\b|\bimport\s*\.\s*meta\s*\.\s*env\b/,
+      /(?:TWELVE_DATA|ALPHA_VANTAGE|FRED|FINANCE_CALENDAR|MARKETAUX|XOOMAR|BLS|BEA)_API_KEY|\bprocess\s*\.\s*env\b|\bimport\s*\.\s*meta\s*\.\s*env\b/,
     skipComments: true,
   },
   {

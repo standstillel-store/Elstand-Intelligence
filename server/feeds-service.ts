@@ -1,9 +1,26 @@
-import { fetchCalendar, type CalendarFetch } from './financecalendar.js';
+import type { Provenance } from '../src/data/provenance.js';
+import type { CalendarFetch } from './calendar-shared.js';
+import { fetchCalendar } from './financecalendar.js';
 import { fetchReferenceRates, type ReferenceRates } from './frankfurter.js';
 import { REFERENCE_BASE, REFERENCE_SOURCE_LINK, REFERENCE_SYMBOLS } from './macro-catalog.js';
 import { DEFAULT_NEWS_LIMIT, fetchNews, type NewsFetch } from './marketaux.js';
 import { formatIsoDate } from './parse.js';
-import { credentialOf, through, type Outcome, type ServiceDeps } from './service.js';
+import { readProvider } from './provider-registry.js';
+import {
+  SHOWMYTRADES_ENDPOINT,
+  daysFor,
+  fetchShowMyTrades,
+  withinWindow,
+} from './showmytrades.js';
+import {
+  asFallback,
+  credentialOf,
+  failureReason,
+  through,
+  type Outcome,
+  type ServiceDeps,
+} from './service.js';
+import { fetchXoomar } from './xoomar.js';
 
 /**
  * The economic calendar, the news feed and the reference exchange rates.
@@ -60,7 +77,61 @@ export interface CalendarDays {
   readonly toMs: number;
 }
 
-export function loadCalendar(
+const calendarKey = (provider: string, days: CalendarDays): string =>
+  `calendar:${provider}:${formatIsoDate(days.fromMs)}:${formatIsoDate(days.toMs)}`;
+
+/** The primary source. Free, no key; asked for the fewest days that cover the window. */
+export async function loadShowMyTrades(
+  deps: ServiceDeps,
+  days: CalendarDays,
+): Promise<Outcome<CalendarFetch>> {
+  const window = { fromMs: days.fromMs, toMs: days.toMs };
+  const requestDays = daysFor(deps.now(), window);
+  const outcome = await through<CalendarFetch>(deps, {
+    provider: 'showmytrades',
+    capability: 'economic-calendar',
+    endpoint: SHOWMYTRADES_ENDPOINT,
+    dataClass: 'calendar',
+    // Pages asking for different days share the answer of the same step.
+    cacheKey: `calendar:showmytrades:${requestDays}`,
+    // A calendar has no "newest datum": its freshness is the age of the retrieval.
+    isCurrent: () => true,
+    dataAsOf: () => null,
+    load: (ready) =>
+      fetchShowMyTrades(
+        httpOf(deps),
+        { baseUrl: ready.baseUrl },
+        requestDays,
+        deps.runtime.validators,
+      ),
+  });
+  return outcome.kind === 'data'
+    ? { ...outcome, value: withinWindow(outcome.value, window) }
+    : outcome;
+}
+
+/** The fallback. U.S. agency releases only, and never a forecast. */
+export function loadXoomar(deps: ServiceDeps, days: CalendarDays): Promise<Outcome<CalendarFetch>> {
+  return through<CalendarFetch>(deps, {
+    provider: 'xoomar',
+    capability: 'economic-calendar',
+    endpoint: CALENDAR_ENDPOINT,
+    dataClass: 'calendar',
+    cacheKey: calendarKey('xoomar', days),
+    isCurrent: () => true,
+    dataAsOf: () => null,
+    load: (ready) =>
+      fetchXoomar(
+        httpOf(deps),
+        { baseUrl: ready.baseUrl, apiKey: ready.apiKey },
+        { fromMs: days.fromMs, toMs: days.toMs },
+        deps.runtime.validators,
+      ),
+  });
+}
+
+/** The optional legacy source. Asked only when its key is set, and only after the free ones. */
+export function loadFinanceCalendar(
   deps: ServiceDeps,
   days: CalendarDays,
 ): Promise<Outcome<CalendarFetch>> {
@@ -69,8 +140,7 @@ export function loadCalendar(
     capability: 'economic-calendar',
     endpoint: CALENDAR_ENDPOINT,
     dataClass: 'calendar',
-    cacheKey: `calendar:${formatIsoDate(days.fromMs)}:${formatIsoDate(days.toMs)}`,
-    // A calendar has no "newest datum": its freshness is the age of the retrieval.
+    cacheKey: calendarKey('financecalendar', days),
     isCurrent: () => true,
     dataAsOf: () => null,
     load: (ready) =>
@@ -80,6 +150,71 @@ export function loadCalendar(
         { fromMs: days.fromMs, toMs: days.toMs },
       ),
   });
+}
+
+/** `ERROR — Could not reach X.` becomes `X (ERROR): Could not reach X.` */
+function reasonLine(provenance: Provenance): string {
+  const message = provenance.message ?? provenance.state;
+  const at = message.indexOf(' — ');
+  const text = at === -1 ? message : message.slice(at + 3);
+  return `${provenance.providerLabel} (${provenance.state}): ${text}`;
+}
+
+/** Every source was asked and none gave a current answer: the interface is told exactly that. */
+function nobodyAnswered(reasons: readonly Provenance[]): Outcome<CalendarFetch> {
+  const first = reasons[0];
+  return {
+    kind: 'withheld',
+    provenance: {
+      provider: 'showmytrades',
+      providerLabel: first?.providerLabel ?? 'ShowMyTrades',
+      capability: 'economic-calendar',
+      endpoint: first?.endpoint ?? CALENDAR_ENDPOINT,
+      state: 'UNAVAILABLE',
+      retrievedAt: null,
+      dataAsOf: null,
+      cache: 'fresh',
+      fallback: null,
+      message: `UNAVAILABLE — No economic calendar source answered. ${reasons.map(reasonLine).join(' ')}`,
+    },
+    failure: null,
+  };
+}
+
+/**
+ * The economic calendar: ShowMyTrades, then XOOMAR when it cannot answer, then Finance Calendar
+ * when its key is set. The first source that gives a current, validated answer wins, and the
+ * answer says which source it is and, when it is not the primary, why the primary was passed over.
+ *
+ * A copy kept from an earlier answer (state CACHED or STALE) does not count as an answer for this
+ * purpose: a source that can still be asked is preferred to it. Only when no source answers is the
+ * best kept copy shown, still labelled as old. When there is none, the answer is UNAVAILABLE with
+ * each source's reason, and no event is made up.
+ */
+export async function loadCalendar(
+  deps: ServiceDeps,
+  days: CalendarDays,
+): Promise<Outcome<CalendarFetch>> {
+  const sources: ((d: ServiceDeps, w: CalendarDays) => Promise<Outcome<CalendarFetch>>)[] = [
+    loadShowMyTrades,
+    loadXoomar,
+  ];
+  if (readProvider('financecalendar', deps.env).kind === 'ready') sources.push(loadFinanceCalendar);
+
+  const unanswered: Provenance[] = [];
+  let kept: Outcome<CalendarFetch> | null = null;
+  for (const load of sources) {
+    const outcome = await load(deps, days);
+    if (outcome.kind === 'data' && outcome.provenance.cache !== 'stale-if-error') {
+      const primary = unanswered[0];
+      return primary === undefined
+        ? outcome
+        : asFallback(outcome, 'showmytrades', failureReason(primary));
+    }
+    if (outcome.kind === 'data' && kept === null) kept = outcome;
+    unanswered.push(outcome.provenance);
+  }
+  return kept ?? nobodyAnswered(unanswered);
 }
 
 export function loadNews(deps: ServiceDeps): Promise<Outcome<NewsFetch>> {

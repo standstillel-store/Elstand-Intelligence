@@ -19,10 +19,47 @@ import { DEFAULT_RETRY, withRetry, type RetryPolicy } from './retry.js';
  * own, so no state leaks between them.
  */
 
+/**
+ * The `ETag` a provider sent with an answer, kept with the answer it belongs to. Asking again
+ * with that tag lets the provider say `304 Not Modified`, which costs it (and the budget kept for
+ * it) almost nothing and confirms the held answer instead of replacing it. Held per server
+ * instance, bounded, and never the only copy: the answer cache decides what may still be served.
+ */
+export interface Validated<T> {
+  readonly etag: string;
+  readonly value: T;
+}
+
+export interface ValidatorStore {
+  get<T>(key: string): Validated<T> | undefined;
+  set<T>(key: string, entry: Validated<T>): void;
+}
+
+const MAX_VALIDATORS = 64;
+
+export function createValidatorStore(): ValidatorStore {
+  const held = new Map<string, Validated<unknown>>();
+  return {
+    get<T>(key: string): Validated<T> | undefined {
+      return held.get(key) as Validated<T> | undefined;
+    },
+    set<T>(key: string, entry: Validated<T>): void {
+      held.delete(key);
+      held.set(key, entry);
+      // Bounded however many keys arrive: the oldest entry goes first.
+      for (const oldest of held.keys()) {
+        if (held.size <= MAX_VALIDATORS) break;
+        held.delete(oldest);
+      }
+    },
+  };
+}
+
 export interface ProviderRuntime {
   readonly cache: TtlCache;
   readonly limiter: RateLimiter;
   readonly sleep: (ms: number) => Promise<void>;
+  readonly validators: ValidatorStore;
 }
 
 export function createProviderRuntime(cache: TtlCache = createTtlCache()): ProviderRuntime {
@@ -30,6 +67,7 @@ export function createProviderRuntime(cache: TtlCache = createTtlCache()): Provi
     cache,
     limiter: createRateLimiter(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    validators: createValidatorStore(),
   };
 }
 

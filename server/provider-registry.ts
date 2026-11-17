@@ -44,12 +44,18 @@ export interface ProviderSpec {
   readonly consequence: string;
   /** The free-tier limits that were verified, in one sentence. */
   readonly limits: string;
+  /**
+   * Set when the provider's terms do not allow Elstand's use without its written permission: the
+   * words to show. A gated provider is never asked, whatever the environment says.
+   */
+  readonly licenseGate?: string;
 }
 
 export const ENV_ALPHA_VANTAGE_KEY = 'ALPHA_VANTAGE_API_KEY';
 export const ENV_FRED_KEY = 'FRED_API_KEY';
 export const ENV_FINANCE_CALENDAR_KEY = 'FINANCE_CALENDAR_API_KEY';
 export const ENV_MARKETAUX_KEY = 'MARKETAUX_API_KEY';
+export const ENV_XOOMAR_KEY = 'XOOMAR_API_KEY';
 export const ENV_FRANKFURTER_URL = 'FRANKFURTER_API_BASE_URL';
 export const ENV_WORLD_BANK_URL = 'WORLD_BANK_API_BASE_URL';
 export const ENV_IMF_URL = 'IMF_API_BASE_URL';
@@ -62,6 +68,8 @@ export const ENV_TWELVE_DATA_PER_DAY = 'TWELVE_DATA_CREDITS_PER_DAY';
 export const TWELVE_DATA_BASE = 'https://api.twelvedata.com';
 export const ALPHA_VANTAGE_BASE = 'https://www.alphavantage.co';
 export const FRED_BASE = 'https://api.stlouisfed.org/fred';
+export const SHOWMYTRADES_BASE = 'https://showmytrades.com/api/public';
+export const XOOMAR_BASE = 'https://xoomar.com/api/markets';
 export const FINANCE_CALENDAR_BASE = 'https://www.financecalendar.com/wp-json/fc/v1';
 export const MARKETAUX_BASE = 'https://api.marketaux.com/v1';
 export const FRANKFURTER_BASE = 'https://api.frankfurter.dev/v1';
@@ -120,17 +128,74 @@ export const PROVIDER_SPECS: Readonly<Record<ProviderId, ProviderSpec>> = {
       'Free key. FRED rate-limits each key (a 429 is reported as RATE LIMITED); Elstand keeps to ' +
       '60 requests per minute and reads each series at most every 6 hours.',
   },
+  showmytrades: {
+    id: 'showmytrades',
+    label: 'ShowMyTrades',
+    capabilities: ['economic-calendar'],
+    role: 'primary',
+    roleText: 'Primary source of the economic calendar. Free, no key.',
+    keyVariable: null,
+    keyRequirement: 'none',
+    baseUrlVariable: null,
+    defaultBaseUrl: SHOWMYTRADES_BASE,
+    consequence: 'Economic calendar events from ShowMyTrades are unavailable.',
+    limits:
+      'No key. The public endpoint allows 600 requests per minute per IP and caches each answer for ' +
+      '15 minutes; Elstand keeps to 30 per minute and asks at most once per cache lifetime. The ' +
+      'window opens 6 hours before the request and spans at most 30 days. Its terms forbid ' +
+      'reselling the calendar on its own or exposing it as a public calendar API.',
+  },
+  xoomar: {
+    id: 'xoomar',
+    label: 'XOOMAR',
+    capabilities: ['economic-calendar'],
+    role: 'fallback',
+    roleText:
+      'Fallback source of the economic calendar, asked only when ShowMyTrades cannot answer. U.S. ' +
+      'agency releases only; it publishes no forecast, so no surprise is calculated from it.',
+    keyVariable: ENV_XOOMAR_KEY,
+    keyRequirement: 'optional',
+    baseUrlVariable: null,
+    defaultBaseUrl: XOOMAR_BASE,
+    consequence: 'The XOOMAR economic calendar fallback is unavailable.',
+    limits:
+      'Without a key: 10 requests per minute per IP. With a free account key: 30. The free licence ' +
+      'is for personal, academic and internal use with a visible credit, and allows no ' +
+      'redistribution.',
+  },
+  arib: {
+    id: 'arib',
+    label: 'AriB Research',
+    capabilities: ['economic-calendar'],
+    role: 'optional',
+    roleText:
+      'Candidate economic calendar source. Never used as a production source without the ' +
+      'provider’s written permission.',
+    keyVariable: null,
+    keyRequirement: 'none',
+    baseUrlVariable: null,
+    defaultBaseUrl: null,
+    consequence: 'AriB Research is not used.',
+    limits: 'Not applicable: no AriB endpoint is used. Its free tier is for personal and internal use.',
+    licenseGate:
+      'LICENSE-GATED — AriB Research permits only personal and internal use of its free tier. ' +
+      'Elstand does not use it as a production source without the provider’s written permission, ' +
+      'so no request is sent.',
+  },
   financecalendar: {
     id: 'financecalendar',
     label: 'Finance Calendar',
     capabilities: ['economic-calendar'],
-    role: 'primary',
-    roleText: 'Primary source of the economic calendar.',
+    role: 'optional',
+    roleText:
+      'Optional legacy source of the economic calendar, asked only when FINANCE_CALENDAR_API_KEY is ' +
+      'set. Nothing depends on it.',
     keyVariable: ENV_FINANCE_CALENDAR_KEY,
     keyRequirement: 'required',
     baseUrlVariable: null,
     defaultBaseUrl: FINANCE_CALENDAR_BASE,
-    consequence: 'Economic calendar events from Finance Calendar are unavailable.',
+    consequence:
+      'The optional Finance Calendar source is disabled; the economic calendar does not depend on it.',
     limits:
       'No anonymous access: every request needs the API key of a paid plan, and a request without ' +
       'one is refused with HTTP 401. The Starter plan allows 1,000 requests per day and 25,000 per ' +
@@ -246,7 +311,8 @@ export type ProviderReading =
     }
   | { readonly kind: 'env-missing'; readonly spec: ProviderSpec; readonly message: string }
   | { readonly kind: 'invalid'; readonly spec: ProviderSpec; readonly message: string }
-  | { readonly kind: 'no-endpoint'; readonly spec: ProviderSpec; readonly message: string };
+  | { readonly kind: 'no-endpoint'; readonly spec: ProviderSpec; readonly message: string }
+  | { readonly kind: 'license-gated'; readonly spec: ProviderSpec; readonly message: string };
 
 function readCredential(
   env: Env,
@@ -263,6 +329,10 @@ function invalidMessage(variable: string, label: string, detail: string): string
 
 export function readProvider(id: ProviderId, env: Env): ProviderReading {
   const spec = PROVIDER_SPECS[id];
+
+  if (spec.licenseGate !== undefined) {
+    return { kind: 'license-gated', spec, message: spec.licenseGate };
+  }
 
   if (spec.role === 'unavailable') {
     const variable = spec.baseUrlVariable;
@@ -366,6 +436,14 @@ export function budgetFor(id: ProviderId, env: Env, keyed: boolean): BudgetSpec 
       return { perMinute: 5, perDay: 25 };
     case 'fred':
       return { perMinute: 60, perDay: null };
+    case 'showmytrades':
+      // 600 a minute per IP is allowed; one answer is reused for 15 minutes, so a few suffice.
+      return { perMinute: 30, perDay: null };
+    case 'xoomar':
+      // 10 a minute per IP without a key, 30 with one.
+      return keyed ? { perMinute: 20, perDay: null } : { perMinute: 6, perDay: null };
+    case 'arib':
+      return { perMinute: 0, perDay: 0 };
     case 'financecalendar':
       // Starter: 1,000 a day and 25,000 a month. 750 a day is 22,500 over a 30-day month.
       return { perMinute: 10, perDay: 750 };
@@ -395,6 +473,8 @@ function configStateOf(reading: ProviderReading): WireProviderConfig['config'] {
       return 'invalid';
     case 'no-endpoint':
       return 'no-endpoint';
+    case 'license-gated':
+      return 'license-gated';
   }
 }
 

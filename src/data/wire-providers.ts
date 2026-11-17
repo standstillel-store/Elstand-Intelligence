@@ -25,7 +25,14 @@ export const API_PROVIDERS_PATH = '/api/providers';
 export const KEY_REQUIREMENTS = ['required', 'optional', 'none'] as const;
 export type KeyRequirement = (typeof KEY_REQUIREMENTS)[number];
 
-export const PROVIDER_ROLES = ['primary', 'fallback', 'reference', 'unavailable'] as const;
+export const PROVIDER_ROLES = [
+  'primary',
+  'fallback',
+  'reference',
+  /** Used only when the operator turns it on (a key), and nothing depends on it. */
+  'optional',
+  'unavailable',
+] as const;
 export type ProviderRole = (typeof PROVIDER_ROLES)[number];
 
 /**
@@ -33,8 +40,16 @@ export type ProviderRole = (typeof PROVIDER_ROLES)[number];
  *  - `env-not-connected`: a variable this provider needs is not set.
  *  - `invalid`: a variable is set but its value cannot be used (never shown).
  *  - `no-endpoint`: no verified endpoint exists in this build, whatever the environment says.
+ *  - `license-gated`: the provider's terms do not allow this use without its written permission,
+ *    so Elstand sends no request, whatever the environment says.
  */
-export const CONFIG_STATES = ['ready', 'env-not-connected', 'invalid', 'no-endpoint'] as const;
+export const CONFIG_STATES = [
+  'ready',
+  'env-not-connected',
+  'invalid',
+  'no-endpoint',
+  'license-gated',
+] as const;
 export type ConfigState = (typeof CONFIG_STATES)[number];
 
 export interface WireProviderConfig {

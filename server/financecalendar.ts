@@ -5,6 +5,15 @@ import type {
   ImpactClassification,
   SourceRights,
 } from '../src/data/macro.js';
+import {
+  NO_QUOTA,
+  uniqueSorted,
+  type CalendarAttribution,
+  type CalendarFetch,
+  type CalendarWindow,
+  type ExcludedEvent,
+  type QuotaReading,
+} from './calendar-shared.js';
 import { ApiFailure } from './errors.js';
 import {
   DAY_MS,
@@ -55,10 +64,10 @@ import { callProvider, sanitizeText, type HttpDeps } from './provider-http.js';
 export const FINANCE_CALENDAR_LABEL = 'Finance Calendar';
 export const FINANCE_CALENDAR_HOME = 'https://www.financecalendar.com';
 
-export const CALENDAR_ATTRIBUTION = {
+export const CALENDAR_ATTRIBUTION: CalendarAttribution = {
   name: 'Finance Calendar',
   url: FINANCE_CALENDAR_HOME,
-} as const;
+};
 
 export const IMPACT_SCHEME = 'Finance Calendar impact rating';
 
@@ -84,32 +93,6 @@ export interface FinanceCalendarConfig {
   readonly baseUrl: string;
   /** The API key of a plan. The provider has no anonymous access. */
   readonly apiKey: string;
-}
-
-export interface CalendarWindow {
-  /** Inclusive start, as a UTC instant; the request names its UTC day. */
-  readonly fromMs: number;
-  readonly toMs: number;
-}
-
-export interface QuotaReading {
-  readonly limit: number | null;
-  readonly remaining: number | null;
-  readonly tier: string | null;
-}
-
-export interface ExcludedEvent {
-  readonly id: string;
-  readonly reason: string;
-}
-
-export interface CalendarFetch {
-  readonly events: readonly CalendarEvent[];
-  readonly excluded: readonly ExcludedEvent[];
-  /** The provider's count for the window, which can exceed what was read. */
-  readonly total: number | null;
-  readonly truncated: boolean;
-  readonly quota: QuotaReading;
 }
 
 const PAGE_SIZE = 500;
@@ -367,7 +350,7 @@ export async function fetchCalendar(
   const excluded: ExcludedEvent[] = [];
   let total: number | null = null;
   let read = 0;
-  let quota: QuotaReading = { limit: null, remaining: null, tier: null };
+  let quota: QuotaReading = NO_QUOTA;
 
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const response = await callProvider(http, {
@@ -397,18 +380,14 @@ export async function fetchCalendar(
     if (parsed.count === 0 || total === null || read >= total) break;
   }
 
-  const seen = new Set<string>();
-  const unique = events.filter((event) => {
-    if (seen.has(event.id)) return false;
-    seen.add(event.id);
-    return true;
-  });
-  unique.sort((a, b) => a.timeMs - b.timeMs || a.id.localeCompare(b.id));
   return {
-    events: unique,
+    events: uniqueSorted(events),
     excluded,
     total,
     truncated: total !== null && read < total,
     quota,
+    attribution: CALENDAR_ATTRIBUTION,
+    notes: [],
+    coverage: null,
   };
 }
