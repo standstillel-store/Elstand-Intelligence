@@ -6,20 +6,8 @@ import { REFERENCE_BASE, REFERENCE_SOURCE_LINK, REFERENCE_SYMBOLS } from './macr
 import { DEFAULT_NEWS_LIMIT, fetchNews, type NewsFetch } from './marketaux.js';
 import { formatIsoDate } from './parse.js';
 import { readProvider } from './provider-registry.js';
-import {
-  SHOWMYTRADES_ENDPOINT,
-  daysFor,
-  fetchShowMyTrades,
-  withinWindow,
-} from './showmytrades.js';
-import {
-  asFallback,
-  credentialOf,
-  failureReason,
-  through,
-  type Outcome,
-  type ServiceDeps,
-} from './service.js';
+import { SHOWMYTRADES_ENDPOINT, daysFor, fetchShowMyTrades, withinWindow } from './showmytrades.js';
+import { asFallback, credentialOf, through, type Outcome, type ServiceDeps } from './service.js';
 import { fetchXoomar } from './xoomar.js';
 
 /**
@@ -206,10 +194,10 @@ export async function loadCalendar(
   for (const load of sources) {
     const outcome = await load(deps, days);
     if (outcome.kind === 'data' && outcome.provenance.cache !== 'stale-if-error') {
-      const primary = unanswered[0];
-      return primary === undefined
+      // Every source that was passed over is named with its own reason, in the order asked.
+      return unanswered.length === 0
         ? outcome
-        : asFallback(outcome, 'showmytrades', failureReason(primary));
+        : asFallback(outcome, 'showmytrades', unanswered.map(reasonLine).join(' '));
     }
     if (outcome.kind === 'data' && kept === null) kept = outcome;
     unanswered.push(outcome.provenance);

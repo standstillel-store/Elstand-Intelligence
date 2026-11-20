@@ -172,7 +172,11 @@ export function createProvidersPage(ctx: AppContext): View {
     const { config } = group;
     const check = checks.get(config.id);
     const verify = button(
-      config.config === 'no-endpoint' ? 'No endpoint to check' : 'Verify connection',
+      config.config === 'no-endpoint'
+        ? 'No endpoint to check'
+        : config.config === 'license-gated'
+          ? 'No request is sent'
+          : 'Verify connection',
       () => runCheck(config.id),
       {
         small: true,
@@ -184,6 +188,7 @@ export function createProvidersPage(ctx: AppContext): View {
     verify.disabled =
       check?.kind === 'running' ||
       config.config === 'no-endpoint' ||
+      config.config === 'license-gated' ||
       config.config === 'env-not-connected';
     return h(
       'article',

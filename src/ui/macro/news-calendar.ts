@@ -14,6 +14,12 @@ import type {
 import { createScope, h, replaceContent, type Child, type View } from '../dom.js';
 import { createPanel } from '../parts.js';
 import {
+  SURPRISE_UNAVAILABLE,
+  eventDataLine,
+  surpriseUnavailableText,
+  timingParts,
+} from './calendar-words.js';
+import {
   attributionLine,
   failedBlock,
   loadingNotice,
@@ -138,14 +144,21 @@ function figures(event: CalendarEvent): HTMLElement {
     ...(present.length === 0
       ? [h('span', { text: 'No figures published yet' })]
       : present.map(([label, value]) => h('span', {}, `${label} `, h('b', { text: value })))),
-    event.surprise === undefined
-      ? null
-      : h('span', {
+    event.surprise !== undefined
+      ? h('span', {
           text:
             `Surprise ${event.surprise.value > 0 ? '+' : ''}${event.surprise.value} ${event.surprise.unit} ` +
             `(${event.surprise.basis}) · CALCULATED`,
           attrs: { title: 'Computed by Elstand from two figures the source supplied.' },
-        }),
+        })
+      : // An event that has not been released has no surprise to report; one that has, and still
+        // has none, says so and why.
+        event.actual === null
+        ? null
+        : h('span', {
+            text: SURPRISE_UNAVAILABLE,
+            attrs: { title: surpriseUnavailableText(event) },
+          }),
   );
 }
 
@@ -190,6 +203,7 @@ export function calendarItem(event: CalendarEvent, zone: string): HTMLElement {
             attrs: { title: 'The schedule status the source states.' },
           }),
       event.stage === undefined ? null : h('span', { text: event.stage }),
+      ...timingParts(event).map(([label, value]) => h('span', { text: `${label}: ${value}` })),
     ),
     h('h4', { class: 'feed__title', text: event.title }),
     figures(event),
@@ -400,7 +414,7 @@ export function createNewsCalendarModule(ctx: AppContext): View {
               'div',
               { class: 'feed__item' },
               unavailableBlock({
-                source: 'A calendar provider',
+                source: 'An economic calendar source',
                 reason: result.reason,
                 origin: result.origin,
                 onRetry: () => calendarResource.reload(CALENDAR_KEY),
@@ -414,7 +428,9 @@ export function createNewsCalendarModule(ctx: AppContext): View {
           .filter((event) => matchesCurrency([event.currency], currency))
           .sort((a, b) => a.timeMs - b.timeMs || a.id.localeCompare(b.id));
         calendarMeta.textContent = metaText(result.asOf, result.origin);
+        const dataLine = eventDataLine(result.origin);
         replaceContent(calendarHost, [
+          dataLine === null ? null : h('div', { class: 'feed__item' }, dataLine),
           ...originNotices(result.origin).map((entry) => h('div', { class: 'feed__item' }, entry)),
           ...screeningNotices(screened).map((entry) => h('div', { class: 'feed__item' }, entry)),
           ...(shown.length === 0
