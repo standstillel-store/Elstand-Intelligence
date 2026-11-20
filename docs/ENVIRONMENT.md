@@ -1,9 +1,14 @@
 # Environment
 
 **Nothing here is required.** With no environment variable at all, the application builds, starts
-and renders, and every panel that needs provider data shows the exact text **ENV NOT CONNECTION**,
-followed by a sentence that names the missing variable. There is no sample data to fall back to, by
-design (see [DATA-INTEGRITY.md](DATA-INTEGRITY.md)).
+and renders, and every panel that needs a credentialed provider shows the exact text **ENV NOT
+CONNECTION**, followed by a sentence that names the missing variable. There is no sample data to
+fall back to, by design (see [DATA-INTEGRITY.md](DATA-INTEGRITY.md)).
+
+**The economic calendar needs no variable.** Its primary source (ShowMyTrades) and its fallback
+(XOOMAR) are asked without a key. Without any variable the calendar is therefore asked, not
+ENV NOT CONNECTED; if no source answers it says UNAVAILABLE, or ERROR, with each source's reason.
+The paid Finance Calendar is an optional legacy source, asked only when its key is set.
 
 Every variable is read **only by the server** (`api/*`, `npm run dev`, `npm run preview`). None is
 sent to the browser. `/api/status` and `/api/providers` report the _names_ of missing variables and
@@ -33,7 +38,8 @@ reached (see [Verifying a provider](#first-connection-checklist)).
 | `TWELVE_DATA_CREDITS_PER_DAY`    | no      | `800`                            | The same budget per day. A plain whole number, clamped to **1 to 10000000**; anything else falls back to the default.                                                                                                                                                                                                                                                                   |
 | `ALPHA_VANTAGE_API_KEY`          | **yes** | unset                            | Alpha Vantage key. Enables the fallback for daily candles and spot quotes. Unset: the fallback is off and the rest is unaffected.                                                                                                                                                                                                                                                       |
 | `FRED_API_KEY`                   | **yes** | unset                            | FRED key (32 lowercase letters and digits). Unset: policy rates and inflation indices are ENV NOT CONNECTED.                                                                                                                                                                                                                                                                            |
-| `FINANCE_CALENDAR_API_KEY`       | **yes** | unset                            | Finance Calendar key, from a paid plan: the provider has no anonymous access. Unset: the economic calendar is ENV NOT CONNECTED and Surface VI event waves are disabled.                                                                                                                                                                                                                |
+| `XOOMAR_API_KEY`                 | **yes** | unset                            | **Optional.** Free XOOMAR account key. Without it the XOOMAR fallback calendar is still asked, under a smaller allowance (10 a minute per IP instead of 30). Sent only to XOOMAR, never to the browser.                                                                                                                                                                                 |
+| `FINANCE_CALENDAR_API_KEY`       | **yes** | unset                            | **Optional legacy source.** Finance Calendar key, from a paid plan. Unset: Finance Calendar is disabled and the economic calendar does not depend on it. Set: it is asked last, after ShowMyTrades and XOOMAR.                                                                                                                                                                          |
 | `MARKETAUX_API_KEY`              | **yes** | unset                            | Marketaux key. Unset: financial news is ENV NOT CONNECTED.                                                                                                                                                                                                                                                                                                                              |
 | `FRANKFURTER_API_BASE_URL`       | no      | `https://api.frankfurter.dev/v1` | Optional override of the Frankfurter address, for a copy you host yourself. Must be an https address with no credentials, query or fragment.                                                                                                                                                                                                                                            |
 | `WORLD_BANK_API_BASE_URL`        | no      | `https://api.worldbank.org/v2`   | Optional override of the World Bank address. The same rule applies.                                                                                                                                                                                                                                                                                                                     |
@@ -55,7 +61,7 @@ provider**. The provider page says `ERROR — NAME is set but …`, and the valu
 
 ## Providers
 
-The ten providers, in the order of the provider status page (`#/providers`, linked from the footer).
+The thirteen providers, in the order of the provider status page (`#/providers`, linked from the footer).
 Each one supplies one capability and is asked only for what it can supply: a daily reference rate is
 never offered as an intraday candle, and Alpha Vantage is never a blind fallback for real-time data.
 
@@ -64,6 +70,9 @@ never offered as an intraday candle, and Alpha Vantage is never a blind fallback
 | Twelve Data                      | `TWELVE_DATA_API_KEY`      | required   | Forex market data            | `server/twelvedata.ts`      |
 | Alpha Vantage                    | `ALPHA_VANTAGE_API_KEY`    | required   | Forex market data            | `server/alphavantage.ts`    |
 | FRED                             | `FRED_API_KEY`             | required   | Macro observations           | `server/fred.ts`            |
+| ShowMyTrades                     | none                       | none       | Economic calendar            | `server/showmytrades.ts`    |
+| XOOMAR                           | `XOOMAR_API_KEY`           | optional   | Economic calendar            | `server/xoomar.ts`          |
+| AriB Research                    | none                       | none       | Economic calendar            | none (license-gated)        |
 | Finance Calendar                 | `FINANCE_CALENDAR_API_KEY` | required   | Economic calendar            | `server/financecalendar.ts` |
 | Marketaux                        | `MARKETAUX_API_KEY`        | required   | Financial news               | `server/marketaux.ts`       |
 | Frankfurter                      | `FRANKFURTER_API_BASE_URL` | none       | Exchange-rate reference data | `server/frankfurter.ts`     |
@@ -75,6 +84,8 @@ never offered as an intraday candle, and Alpha Vantage is never a blind fallback
 "Credential" says what the provider asks for. **required**: without the variable the provider is
 not asked and its panels say ENV NOT CONNECTED. **optional**: it works without, under a smaller
 allowance. **none**: no key exists; the variable, where there is one, is only an address override.
+A provider's **role** is a separate matter: ShowMyTrades is the _primary_ economic calendar, XOOMAR
+the _fallback_, and Finance Calendar and AriB Research are _optional_: nothing depends on either.
 
 Common to every provider: its **required environment** is the server that answers `/api/*`. On
 Vercel that is Production at least, and Preview if you open preview deployments. A change to a
@@ -124,19 +135,80 @@ through the shared request path in `server/service.ts`.
 - **When rejected or invalid:** a key of the wrong shape is reported as ERROR and not sent; a key FRED refuses is reported as ERROR with FRED's own words.
 - **Live check:** not live-tested. No key was available when this was written. Only the documented response shapes are tested.
 
+### Economic calendar sources
+
+The economic calendar is asked of its sources **in this order**, and the first that gives a current,
+validated answer wins:
+
+1. **ShowMyTrades** (primary). Free, no key.
+2. **XOOMAR** (fallback). Asked only when ShowMyTrades could not answer.
+3. **Finance Calendar** (optional legacy). Asked only when `FINANCE_CALENDAR_API_KEY` is set, and
+   only when the two above could not answer.
+
+AriB Research is **not** in the chain: it is license-gated (see below), and no request is ever sent
+to it. The answer says which source it came from (`EVENT DATA: SHOWMYTRADES`, `EVENT DATA: XOOMAR`
+or `EVENT DATA: FINANCE CALENDAR`) and, when it is not the primary's, which source was passed over and
+why. Every event is validated before it is kept: an event without a well-formed id, title, currency,
+impact rating or time is **excluded with its reason**, never repaired, and an HTTP 200 answer whose
+body fails validation is an ERROR, not data. A figure a source leaves empty stays empty (`null`).
+A surprise is calculated only from an actual and a forecast that are both present and in the same
+unit; otherwise the screen says SURPRISE UNAVAILABLE. XOOMAR documents no forecast, so in practice
+nothing read from it has a surprise.
+
+When no source answers, the calendar is UNAVAILABLE and lists each source with its reason, for
+example `ShowMyTrades (ERROR): …`. A copy kept from an earlier answer is shown only when no source
+can be asked, and is labelled CACHED, then STALE.
+
+### ShowMyTrades
+
+- **Credential:** none. The public endpoint needs no key and there is no variable for it.
+- **Official source:** [ShowMyTrades economic calendar API](https://showmytrades.com/docs/api/economic-calendar) and the [calendar page](https://showmytrades.com/tools/economic-calendar).
+- **Used by:** `server/showmytrades.ts` (the adapter) and `server/feeds-service.ts`.
+- **Capability:** Economic calendar, the primary source. Nine currencies (USD, EUR, GBP, JPY, AUD, NZD, CAD, CHF, CNY), each event with its impact rating, forecast, previous and actual figures as the provider writes them, its status (scheduled, moved, tentative) and, where it gives them, the period, its own confidence statement and the time an event was moved from. Market holidays are not requested. Impact is the provider's own rating; Elstand assigns none.
+- **Limits (verified):** No key. The public endpoint allows 600 requests per minute per IP and caches each answer for 15 minutes; Elstand keeps to 30 per minute and asks at most once per cache lifetime. The window opens 6 hours before the request and spans at most 30 days. Its terms forbid reselling the calendar on its own or exposing it as a public calendar API.
+- **How Elstand spends it:** one request per cache lifetime (`ELSTAND_TTL_CALENDAR_SECONDS`, 15 minutes by default). The window is relative to the request, so a day is translated into the fewest days that cover it, rounded up to 2, 8, 15 or 30, and pages asking for different days share one answer. The answer is cut back to the window that was asked for, and when the window reaches beyond what the provider covers (it starts 6 hours back and ends at most 30 days out) the notes say which part is not covered. The answer's `ETag` is kept, so a later request asks whether it changed and a 304 is answered from the copy held.
+- **Verify:** `/api/calendar` returns events with their source, retrieval time and the line `EVENT DATA: SHOWMYTRADES`. `/api/providers?probe=showmytrades` makes one real request and reports whether it answered and its data passed validation.
+- **When missing:** nothing is missing: no credential exists. If the request fails the calendar says ERROR with the reason, passes to XOOMAR, and says that it did. The words are never ENV NOT CONNECTED for want of a variable.
+- **Credit and terms:** the answer carries the provider's own attribution (`Economic calendar by ShowMyTrades`, linked to its calendar page) and the screens show it. **Public use is unconfirmed:** the terms forbid reselling the calendar on its own or exposing it as a public calendar API, and Elstand's `/api/calendar` is a relay in front of it. The operator must confirm with ShowMyTrades that a public Elstand deployment is permitted (see [Licensing](#licensing)).
+- **Live check:** see the record at the end of this section. Nothing in this repository proves the live integration beyond the check recorded there; the adapter is tested against stand-ins in the documented shape only.
+
+### XOOMAR
+
+- **Credential:** optional (secret): `XOOMAR_API_KEY`. A free account key raises the allowance; the fallback is asked without it.
+- **Official source:** [XOOMAR calendar API](https://xoomar.com/markets/api/calendar) and its [terms](https://xoomar.com/terms).
+- **Used by:** `server/xoomar.ts` (the adapter) and `server/feeds-service.ts`.
+- **Capability:** Economic calendar, the fallback: **U.S. agency releases only** (BLS, BEA, Census, the Federal Reserve, DOL and Treasury), so every event is USD. It documents **no forecast**, so `forecast` is empty and, in practice, no surprise is calculated from it (a forecast it did send would be kept as written, never produced here). It states no schedule status, so none is shown. XOOMAR gives no event identifier, so one is built from the publisher, the event title and the scheduled time. Figures are shown as written, with their unit after them.
+- **Limits (verified):** Without a key: 10 requests per minute per IP. With a free account key: 30. The free licence is for personal, academic and internal use with a visible credit, and allows no redistribution.
+- **How Elstand spends it:** 6 a minute without a key and 20 with one, per server instance, and only when ShowMyTrades could not answer. The answer is kept for the same cache lifetime as the calendar and its `ETag` is used for conditional requests.
+- **Verify:** `/api/providers?probe=xoomar` makes one real request. It is never made to prove the fallback: the fallback is proved by tests that make the primary fail.
+- **When missing:** `XOOMAR_API_KEY` is optional, so nothing is missing and the fallback runs keyless. A key that is set but malformed is reported as ERROR and not sent.
+- **Credit and terms:** the answer carries XOOMAR's credit and the screens show it. The free licence allows no redistribution, so the operator must confirm that public display from a public Elstand deployment is permitted, or hold a licence that allows it. No variable switches the fallback off; remove the adapter's entry from the router if the terms do not permit it for you.
+- **Live check:** **not live-tested** unless the record at the end of this section says otherwise. The adapter is tested with stand-ins in the documented shape.
+
+### AriB Research
+
+- **Credential:** none. No variable exists, on purpose.
+- **Official source:** AriB Research's own terms. Its free tier is for personal and internal use.
+- **Used by:** nothing. There is **no adapter**, so no request to AriB can be made by any code path.
+- **Capability:** Economic calendar, **license-gated**. The provider permits only personal and internal use of its free tier. Elstand does not use it as a production source without the provider's written permission.
+- **Limits (verified):** Not applicable: no AriB endpoint is used. Its free tier is for personal and internal use.
+- **Verify:** the provider page shows LICENSE-GATED and its check button says no request is sent. `/api/providers` never reports it as connected.
+- **When missing:** it is never "missing" and never ENV NOT CONNECTED. The words are always: LICENSE-GATED — AriB Research permits only personal and internal use of its free tier. Elstand does not use it as a production source without the provider’s written permission, so no request is sent.
+- **Live check:** nothing to test. If AriB gives written permission for this use, add an adapter, a variable and a router entry together, and change this section with them.
+
 ### Finance Calendar
 
-- **Credential:** required (secret): `FINANCE_CALENDAR_API_KEY`. The provider has no anonymous access: the key belongs to a paid plan.
+- **Credential:** required (secret): `FINANCE_CALENDAR_API_KEY`. The provider has no anonymous access: the key belongs to a paid plan. **This source is optional:** it is asked only when the key is set, after ShowMyTrades and XOOMAR have failed to answer, and nothing in Elstand depends on it.
 - **Official source:** [Finance Calendar API reference](https://www.financecalendar.com/api/reference/) and [service terms](https://www.financecalendar.com/?p=3216).
 - **Used by:** `server/financecalendar.ts` (the adapter) and `server/feeds-service.ts`.
-- **Capability:** Economic calendar. Impact is the source's own rating; Elstand assigns none. An event the source gave no rating is shown as UNCLASSIFIED (NOT RATED in Surface VI).
+- **Capability:** Economic calendar, optional and legacy. Impact is the source's own rating; Elstand assigns none. An event the source gave no rating is shown as UNCLASSIFIED (NOT RATED in Surface VI).
 - **Limits (verified):** No anonymous access: every request needs the API key of a paid plan, and a request without one is refused with HTTP 401. The Starter plan allows 1,000 requests per day and 25,000 per month. Use requires a visible link to financecalendar.com wherever the data is shown, and the credits, licenses and notices supplied with each event.
 - **How Elstand spends it:** 10 a minute and 750 a day, which is 22,500 over a 30-day month against the Starter plan's 25,000. The calendar is kept for 15 minutes (`ELSTAND_TTL_CALENDAR_SECONDS`). A larger plan allows more; the budget does not change by itself.
 - **Credits, licenses and notices:** the terms ask for the publisher links, source licenses, credits and reuse notices supplied with records to be kept. The adapter keeps `source_url`, and from `source_license` and `source_rights` the credit, its link, the license, its link and the notice, in the provider's own words (`source.rights`). The calendar list and the Surface VI details show them with the event. Nothing is composed, and an event without them shows none.
 - **Verify:** `/api/calendar` returns events with their source and retrieval time. `/api/providers?probe=financecalendar` makes one real request. The data screens show the required link to the source.
-- **When missing:** ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing. Economic calendar events from Finance Calendar are unavailable. Surface VI then says, word for word: ENV NOT CONNECTED — Economic calendar provider unavailable. Surface VI event waves are disabled. Nothing is requested and nothing is drawn.
+- **When missing:** ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing. The optional Finance Calendar source is disabled; the economic calendar does not depend on it. That sentence belongs to this provider's own row on the provider page. It does not reach the calendar: ShowMyTrades and XOOMAR are asked without it.
 - **When rejected:** ERROR with the provider's refusal: HTTP 401 for a missing or invalid key, 403 for a revoked key or a disallowed account, and HTTP 402 when the account needs payment to activate or renew access. A refused key is not retried.
-- **Live check:** **not live-tested with a key**: none was available. What was observed on the production deployment (2026-11-10, 23:28 UTC): the first version of this adapter sent the request **without** a key, on the strength of an earlier reading of the provider's documentation, and the provider refused it with HTTP 401. That is why the key is now required. What was observed on the production deployment of commit `aae7b02` (2026-11-11, 21:48 UTC), where the variable is not set: `/api/calendar` answered ENV NOT CONNECTED with the sentence above and no data, and `/api/providers?probe=financecalendar` reported `authentication: unknown` and `dataRetrieved: false` without a request to the provider. The documented response fields, including `source_license` and `source_rights`, are tested with stand-ins only, which does not prove the live integration.
+- **Live check:** **not live-tested with a key**: none was available. What was observed on the production deployment (2026-11-10, 23:28 UTC): the first version of this adapter sent the request **without** a key, on the strength of an earlier reading of the provider's documentation, and the provider refused it with HTTP 401. That is why the key is required. What was observed on the production deployment of commit `aae7b02` (2026-11-11, 21:48 UTC), where the variable is not set, **before the calendar stopped depending on this source**: `/api/calendar` answered ENV NOT CONNECTED and no data, and `/api/providers?probe=financecalendar` reported `authentication: unknown` and `dataRetrieved: false` without a request to the provider. The documented response fields, including `source_license` and `source_rights`, are tested with stand-ins only, which does not prove the live integration.
 
 ### Marketaux
 
@@ -217,9 +289,11 @@ through the shared request path in `server/service.ts`.
 | Provider request limit reached                                                                                                   | 429 `rate_limited`, with `Retry-After` when the provider sends one        | The affected panel shows RATE LIMITED and a Retry button. The connection stays up. The server remembers the limit for 15 seconds instead of asking again.                                                                                                                |
 | Provider unreachable, or it returned data that failed validation                                                                 | 504 `provider_unreachable`, or 502 `provider_error`                       | The affected panel shows the failure and a Retry button. Nothing is repaired or filled in.                                                                                                                                                                               |
 | `/api/status` itself fails (a JSON error, a network failure, a malformed status body)                                            | varies                                                                    | **SERVER ERROR** with a Retry button. This is deliberately different from ENV NOT CONNECTION: the environment may be fine, the server is not answering properly.                                                                                                         |
-| Another keyed provider (FRED, Marketaux, BEA, Alpha Vantage, Finance Calendar) has no key                                        | HTTP 200 with `provenance.state` `ENV NOT CONNECTED` and no data          | Only that provider's panels say ENV NOT CONNECTION, and the sentence names the variable, for example: ENV NOT CONNECTED — FRED_API_KEY is missing. Macro observations from FRED are unavailable. The rest of the terminal is unaffected.                                 |
+| Another keyed provider (FRED, Marketaux, BEA, Alpha Vantage) has no key                                                          | HTTP 200 with `provenance.state` `ENV NOT CONNECTED` and no data          | Only that provider's panels say ENV NOT CONNECTION, and the sentence names the variable, for example: ENV NOT CONNECTED — FRED_API_KEY is missing. Macro observations from FRED are unavailable. The rest of the terminal is unaffected.                                 |
 | A provider that was answered earlier cannot be asked now (limit, outage)                                                         | HTTP 200 with the last verified answer and `cache` `stale-if-error`       | CACHED with the time of the last verified retrieval, then STALE once that answer is older than its freshness window. The words say which.                                                                                                                                |
 | A dataset with no supported endpoint (the IMF)                                                                                   | HTTP 200 with `provenance.state` `UNAVAILABLE` and no data                | UNAVAILABLE — No supported public endpoint is configured for this dataset.                                                                                                                                                                                               |
+| ShowMyTrades cannot answer, XOOMAR can                                                                                           | HTTP 200 with XOOMAR's data and `fallback` naming ShowMyTrades and why    | The calendar from XOOMAR, labelled EVENT DATA: XOOMAR, with a notice that the primary source failed and that XOOMAR lists U.S. agency releases only and no forecast.                                                                                                     |
+| No calendar source answers (none that can be asked gave valid data)                                                              | HTTP 200 with `provenance.state` `UNAVAILABLE` (or `ERROR`) and no data   | The reason of each source, for example ShowMyTrades (ERROR): …. Surface VI says that its event waves are disabled. No event is drawn, and none is made up.                                                                                                               |
 
 The capability endpoints (`/api/calendar`, `/api/news`, `/api/macro`, `/api/bubbles`, `/api/rates`
 and `/api/providers`) answer HTTP 200 whatever the provider did, with a `provenance` that says what
@@ -289,6 +363,18 @@ responsibility, and the application cannot check it.
   `Cache-Control` headers let a CDN share answers across them.
 - `ELSTAND_FEED_REALTIME=true` is your statement that the plan delivers real-time forex. If it does
   not, the interface would call delayed data LIVE. Do not set it on a guess.
+- **ShowMyTrades** (the primary calendar source) is free, but its terms forbid reselling the calendar
+  on its own or exposing it as a public calendar API, and Elstand's `/api/calendar` is a relay in
+  front of it. This build keeps to the provider's limits, shows its credit and says whose data it
+  is, but it cannot make the relay permitted: **confirm with ShowMyTrades, before a public
+  deployment, that this use is allowed**, or take written permission.
+- **XOOMAR** (the fallback) is free for personal, academic and internal use with a visible credit,
+  and allows no redistribution. A public Elstand deployment is a redistribution unless XOOMAR says
+  otherwise. Confirm it, or hold a licence that allows it; the credit is shown with every event
+  that comes from it. No variable turns the fallback off.
+- **AriB Research** permits only personal and internal use of its free tier. It is **never a public
+  production provider** without its written permission: there is no adapter and no variable for it,
+  by design, so it cannot be used by accident.
 - Finance Calendar has no anonymous access: its API needs the key of a paid plan. Its terms ask for
   a visible link to its site wherever its data is shown, and for the publisher links, source
   licenses, credits and reuse notices supplied with each record to be kept; the calendar screens
@@ -309,7 +395,8 @@ provider:
    in the response. That is "configured", and nothing more.
 3. Open the provider status page (`#/providers`) and press **Check connection** for that provider,
    or open `/api/providers?probe=<id>` (the ids are `twelvedata`, `alphavantage`, `fred`,
-   `financecalendar`, `marketaux`, `frankfurter`, `worldbank`, `bls` and `bea`). One real request is
+   `showmytrades`, `xoomar`, `financecalendar`, `marketaux`, `frankfurter`, `worldbank`, `bls` and
+   `bea`; `arib` and `imf` have no check, by design). One real request is
    made, and the answer says whether the provider answered, whether it accepted the credential, and
    whether the data passed validation. A check answers from the server's copy when it is still
    fresh, so it spends nothing extra then.
