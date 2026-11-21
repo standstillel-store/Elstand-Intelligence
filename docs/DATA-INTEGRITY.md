@@ -298,10 +298,11 @@ integration works.**
   need a key that was not available when this was written. The optional Finance Calendar needs a
   paid key (its keyless request was refused with HTTP 401), and nothing depends on it any more. The
   two free economic-calendar sources, ShowMyTrades and XOOMAR, are written from the providers'
-  published documentation and tested against the response shapes they document; the record of any
-  live check is in [ENVIRONMENT.md](ENVIRONMENT.md#showmytrades). Their adapters are written from
-  the providers' documentation and tested against the response shapes they document. The IMF has
-  no endpoint. The status of each provider is
+  published documentation and tested against the response shapes they document. ShowMyTrades has
+  also been run against its live API from the production deployment (2026-11-21); XOOMAR, the
+  fallback, has not been asked in production and is proved only by tests that make the primary
+  fail. The record of each live check is in [ENVIRONMENT.md](ENVIRONMENT.md#showmytrades). The IMF
+  has no endpoint. The status of each provider is
   in [ENVIRONMENT.md](ENVIRONMENT.md#providers).
 - **Free-tier limits** are the ones each provider's documentation states. The ones that could not be
   confirmed against a live account are marked as such there. Elstand's budgets are set below them.

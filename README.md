@@ -159,12 +159,15 @@ These are stated here so nobody has to discover them.
   says UNAVAILABLE. Its book rendering is verified against test fixtures, not against a real venue.
 - **The volatility surface has no data adapter**, so its available-state rendering is verified with
   test fixtures only. The fixtures live under `tests/` and cannot be bundled into the product.
-- **Several providers are not verified live.** Twelve Data, Frankfurter, the World Bank and the BLS
-  have been run against their live APIs from the production deployment. Alpha Vantage, FRED,
-  Marketaux and the BEA need keys that were not available, so their adapters are verified against
-  documented response shapes only. Until a key is set, each says ENV NOT CONNECTED. The IMF has no
-  endpoint. The two free calendar sources are verified against documented response shapes, and the
-  record of any live check is in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md#showmytrades).
+- **Several providers are not verified live.** Twelve Data, Frankfurter, the World Bank, the BLS and
+  ShowMyTrades (the primary economic calendar) have been run against their live APIs from the
+  production deployment; values were not compared against the providers' own sites. Alpha Vantage,
+  FRED, Marketaux and the BEA need keys that were not available, so their adapters are verified
+  against documented response shapes only. Until a key is set, each says ENV NOT CONNECTED. The IMF
+  has no endpoint. **XOOMAR, the calendar fallback, has never been asked in production**: it is
+  verified against documented response shapes only, and the fallback path is proved by tests that
+  make the primary fail. The record of each live check is in
+  [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md#showmytrades).
 - **Public use of the free calendar sources is not confirmed.** ShowMyTrades forbids reselling its
   calendar or exposing it as a public calendar API, and XOOMAR's free licence allows no
   redistribution; Elstand's `/api/calendar` is a relay. The operator must confirm permission before a
