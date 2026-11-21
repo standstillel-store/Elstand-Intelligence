@@ -170,7 +170,7 @@ can be asked, and is labelled CACHED, then STALE.
 - **Verify:** `/api/calendar` returns events with their source, retrieval time and the line `EVENT DATA: SHOWMYTRADES`. `/api/providers?probe=showmytrades` makes one real request and reports whether it answered and its data passed validation.
 - **When missing:** nothing is missing: no credential exists. If the request fails the calendar says ERROR with the reason, passes to XOOMAR, and says that it did. The words are never ENV NOT CONNECTED for want of a variable.
 - **Credit and terms:** the answer carries the provider's own attribution (`Economic calendar by ShowMyTrades`, linked to its calendar page) and the screens show it. **Public use is unconfirmed:** the terms forbid reselling the calendar on its own or exposing it as a public calendar API, and Elstand's `/api/calendar` is a relay in front of it. The operator must confirm with ShowMyTrades that a public Elstand deployment is permitted (see [Licensing](#licensing)).
-- **Live check:** see the record at the end of this section. Nothing in this repository proves the live integration beyond the check recorded there; the adapter is tested against stand-ins in the documented shape only.
+- **Live check:** not live-tested when this was written: nothing in this repository proves the live integration. The adapter is tested against stand-ins in the documented shape only. A later check is recorded below, if one was made.
 
 ### XOOMAR
 
@@ -183,7 +183,7 @@ can be asked, and is labelled CACHED, then STALE.
 - **Verify:** `/api/providers?probe=xoomar` makes one real request. It is never made to prove the fallback: the fallback is proved by tests that make the primary fail.
 - **When missing:** `XOOMAR_API_KEY` is optional, so nothing is missing and the fallback runs keyless. A key that is set but malformed is reported as ERROR and not sent.
 - **Credit and terms:** the answer carries XOOMAR's credit and the screens show it. The free licence allows no redistribution, so the operator must confirm that public display from a public Elstand deployment is permitted, or hold a licence that allows it. No variable switches the fallback off; remove the adapter's entry from the router if the terms do not permit it for you.
-- **Live check:** **not live-tested** unless the record at the end of this section says otherwise. The adapter is tested with stand-ins in the documented shape.
+- **Live check:** **not live-tested.** The adapter is tested against stand-ins in the documented shape only, and the fallback is exercised only by tests that make the primary fail, never by a production request made to prove it.
 
 ### AriB Research
 
