@@ -176,7 +176,8 @@ export const PROVIDER_SPECS: Readonly<Record<ProviderId, ProviderSpec>> = {
     baseUrlVariable: null,
     defaultBaseUrl: null,
     consequence: 'AriB Research is not used.',
-    limits: 'Not applicable: no AriB endpoint is used. Its free tier is for personal and internal use.',
+    limits:
+      'Not applicable: no AriB endpoint is used. Its free tier is for personal and internal use.',
     licenseGate:
       'LICENSE-GATED — AriB Research permits only personal and internal use of its free tier. ' +
       'Elstand does not use it as a production source without the provider’s written permission, ' +

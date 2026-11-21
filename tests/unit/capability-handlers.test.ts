@@ -306,7 +306,9 @@ describe('GET /api/calendar', () => {
     const xoomar = deps.fake.calls.find((call) => call.host === XOOMAR_HOST);
     assert.equal(xoomar?.headers['x-api-key'], KEY);
     assert.ok(
-      deps.fake.calls.filter((call) => call.host !== XOOMAR_HOST).every((call) => !call.url.includes(KEY)),
+      deps.fake.calls
+        .filter((call) => call.host !== XOOMAR_HOST)
+        .every((call) => !call.url.includes(KEY)),
     );
     assert.ok(!response.everything.includes(KEY), 'the key never reaches the browser');
   });
