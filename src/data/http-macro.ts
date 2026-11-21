@@ -94,13 +94,16 @@ export function createHttpMacroFeed(options: HttpMacroOptions): MacroFeedProvide
           origin: { provenance, attribution: null, notes: [] },
         };
       }
-      const notes = present([
-        data.truncated
-          ? `The provider counts ${data.total === null ? 'more' : data.total} events in this window; ` +
-            `only ${data.events.length} were read.`
-          : null,
-        excludedNote('event', data.excluded),
-      ]);
+      const notes = [
+        ...present([
+          data.truncated
+            ? `The provider counts ${data.total === null ? 'more' : data.total} events in this window; ` +
+              `only ${data.events.length} were read.`
+            : null,
+          excludedNote('event', data.excluded),
+        ]),
+        ...data.notes,
+      ];
       const origin: FeedOrigin = { provenance, attribution: data.attribution, notes };
       return {
         status: 'available',

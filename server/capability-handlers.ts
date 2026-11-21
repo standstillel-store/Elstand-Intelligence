@@ -10,7 +10,6 @@ import type {
 import type { WireProvidersAnswer } from '../src/data/wire-providers.js';
 import { sharedCacheControl } from './cache-policy.js';
 import { toApiFailure } from './errors.js';
-import { CALENDAR_ATTRIBUTION } from './financecalendar.js';
 import {
   dayStart,
   defaultCalendarDays,
@@ -95,7 +94,8 @@ export async function handleCalendar(request: Request, deps: HandlerDeps): Promi
         total: value.total,
         truncated: value.truncated,
         quota: value.quota,
-        attribution: CALENDAR_ATTRIBUTION,
+        attribution: value.attribution,
+        notes: value.notes,
       }),
     );
   } catch (error) {

@@ -184,7 +184,15 @@ export function fixtureCalendar(): CalendarEvent[] {
     ...overrides,
   });
   return [
-    event('ev-1', 2, 'USD', 'Fixture inflation release', { country: 'US', actual: '2.3%' }),
+    event('ev-1', 2, 'USD', 'Fixture inflation release', {
+      country: 'US',
+      actual: '2.3%',
+      surprise: {
+        value: 0.2,
+        unit: '%',
+        basis: 'actual minus forecast, both as published by the fixture calendar',
+      },
+    }),
     event('ev-2', 26, 'EUR', 'Fixture policy statement', {
       impact: { level: 'medium', classifiedBy: 'Fixture calendar rating' },
     }),

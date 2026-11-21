@@ -17,6 +17,12 @@ import type { CalendarEvent, FeedResult } from '../../data/macro.js';
 import { createScope, h, replaceContent, svg, type View } from '../dom.js';
 import { createPanel, notice } from '../parts.js';
 import {
+  eventDataLine,
+  surpriseUnavailableText,
+  timingCaveat,
+  timingParts,
+} from './calendar-words.js';
+import {
   attributionLine,
   failedBlock,
   loadingNotice,
@@ -72,12 +78,15 @@ function inspector(event: CalendarEvent): HTMLElement {
   if (event.actual !== null) entries.push(['Actual', event.actual]);
   if (event.forecast !== null) entries.push(['Forecast', event.forecast]);
   if (event.previous !== null) entries.push(['Previous', event.previous]);
+  entries.push(...timingParts(event));
   if (event.surprise !== undefined) {
     const { value, unit, basis } = event.surprise;
     entries.push([
       'Surprise',
       `${value > 0 ? '+' : ''}${value} ${unit} · ${basis} · CALCULATED by Elstand from two figures the source supplied`,
     ]);
+  } else {
+    entries.push(['Surprise', surpriseUnavailableText(event)]);
   }
   entries.push([
     'Source',
@@ -145,6 +154,9 @@ function eventRow(event: CalendarEvent, now: number): Row {
           h('span', {
             text: event.impact === null ? 'NOT RATED' : event.impact.level.toUpperCase(),
           }),
+          timingCaveat(event) === null
+            ? null
+            : h('span', { class: 'wave__caveat', text: timingCaveat(event) ?? '' }),
         ),
       ),
     ),
@@ -235,7 +247,7 @@ export function createEventWavesModule(ctx: AppContext): View {
             connected
               ? [
                   unavailableBlock({
-                    source: 'A calendar provider',
+                    source: 'An economic calendar source',
                     reason: `${result.reason} Surface VI event waves are disabled.`,
                     origin: result.origin,
                     onRetry: () => resource.reload(KEY),
@@ -267,6 +279,7 @@ export function createEventWavesModule(ctx: AppContext): View {
         rows = shown.map((event) => eventRow(event, now));
         metaText.textContent = `${result.origin?.provenance.state ?? 'as received'} · retrieved ${formatUtcDateTime(result.asOf)}`;
         replaceContent(host, [
+          eventDataLine(result.origin),
           ...originNotices(result.origin).map((entry) => entry),
           ...screeningNotices({ ...screened, interpretationsRemoved: 0 }),
           ...(shown.length === 0

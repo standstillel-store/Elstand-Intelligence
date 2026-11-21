@@ -29,6 +29,8 @@ export type SurfaceVariant =
   | 'wrong-instrument';
 export type BubbleVariant = 'unavailable' | 'available' | 'invalid' | 'error' | 'single';
 export type FeedVariant = 'unavailable' | 'available' | 'empty' | 'error';
+/** Which calendar source the harness says answered. TEST-ONLY provenance for fixture events. */
+export type CalendarOrigin = 'showmytrades' | 'xoomar-fallback' | 'nobody-answered';
 
 export interface HarnessSpec {
   /** The hash route to open, e.g. `#/forex/EURUSD/H1`. */
@@ -38,6 +40,8 @@ export interface HarnessSpec {
   readonly surface?: SurfaceVariant;
   readonly bubbles?: BubbleVariant;
   readonly calendar?: FeedVariant;
+  /** Attaches provenance to the calendar answer, as the server does. Absent: none, as before. */
+  readonly calendarOrigin?: CalendarOrigin;
   readonly news?: FeedVariant;
   /** Milliseconds added to the fixture clock, to age every datum without waiting. */
   readonly nowOffsetMs?: number;

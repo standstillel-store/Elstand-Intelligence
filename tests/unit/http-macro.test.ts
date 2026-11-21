@@ -56,10 +56,10 @@ function recorder() {
 
 function provenance(overrides: Partial<Provenance> = {}): Provenance {
   return {
-    provider: 'financecalendar',
-    providerLabel: 'Finance Calendar',
+    provider: 'showmytrades',
+    providerLabel: 'ShowMyTrades',
     capability: 'economic-calendar',
-    endpoint: 'events',
+    endpoint: 'calendar/v1',
     state: 'DELAYED',
     retrievedAt: NOW - MINUTE,
     dataAsOf: null,
@@ -70,7 +70,10 @@ function provenance(overrides: Partial<Provenance> = {}): Provenance {
   };
 }
 
-const ATTRIBUTION = { name: 'Finance Calendar', url: 'https://www.financecalendar.com' };
+const ATTRIBUTION = {
+  name: 'Economic calendar by ShowMyTrades',
+  url: 'https://showmytrades.com/tools/economic-calendar',
+};
 
 function calendarAnswer(overrides: Record<string, unknown> = {}) {
   return {
@@ -82,6 +85,7 @@ function calendarAnswer(overrides: Record<string, unknown> = {}) {
       truncated: false,
       quota: { limit: null, remaining: null, tier: null },
       attribution: ATTRIBUTION,
+      notes: [],
       ...overrides,
     },
   };
@@ -105,7 +109,7 @@ describe('the calendar feed', () => {
     ]);
     assert.equal(result.status, 'available');
     assert.equal(sink.seen.length, 1);
-    assert.equal(sink.seen[0]?.provenance.provider, 'financecalendar');
+    assert.equal(sink.seen[0]?.provenance.provider, 'showmytrades');
     assert.equal(sink.seen[0]?.attemptedAt, NOW);
   });
 
@@ -139,6 +143,23 @@ describe('the calendar feed', () => {
       notes[1] ?? '',
       /1 event was sent by the provider but not shown.*evt-9, it states no time/,
     );
+  });
+
+  it('passes the provider’s own notes on, after the notes about counts, so a limit is never hidden', async () => {
+    const api = fakeApi(() =>
+      calendarAnswer({
+        notes: ['XOOMAR lists U.S. agency releases only.'],
+        total: 4,
+        truncated: true,
+      }),
+    );
+    const feed = createHttpMacroFeed(options(api, recorder()));
+    const result = await feed.getCalendar({ fromMs: NOW, toMs: NOW + 1 }, SIGNAL);
+    assert.equal(result.status, 'available');
+    if (result.status !== 'available') return;
+    const notes = result.origin?.notes ?? [];
+    assert.ok(notes.includes('XOOMAR lists U.S. agency releases only.'));
+    assert.ok(notes.some((note) => /counts 4 events/.test(note)));
   });
 
   it('turns a withheld answer into an unavailable result carrying the server’s own words', async () => {

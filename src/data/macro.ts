@@ -50,6 +50,13 @@ export type EventTimePrecision = 'exact' | 'date';
 /** What the source says about the event's schedule. Only what it states is ever set. */
 export type EventStatus = 'scheduled' | 'estimated' | 'released' | 'rescheduled' | 'cancelled';
 
+/**
+ * How well a calendar's own sources agree about an event, in the calendar's words:
+ * `official` (the publisher's own schedule), `sources_agree`, `single_source`, `sources_disagree`.
+ * It is the provider's statement about its data, never an Elstand rating.
+ */
+export type EventConfidence = 'official' | 'sources_agree' | 'single_source' | 'sources_disagree';
+
 /** A difference Elstand computed from two figures the source supplied (state CALCULATED). */
 export interface EventSurprise {
   /** actual minus forecast, in the unit of the figures. */
@@ -64,6 +71,11 @@ export interface CalendarEvent {
   readonly timeMs: number;
   readonly timePrecision?: EventTimePrecision;
   readonly status?: EventStatus;
+  /** When the source says the event was moved: the instant it was first scheduled for (UTC ms). */
+  readonly movedFromMs?: number;
+  /** The period the figures describe, as the source writes it (e.g. "2025-12"). */
+  readonly period?: string;
+  readonly confidence?: EventConfidence;
   /** The source's own wording for the release stage (e.g. "preliminary"), shown as written. */
   readonly stage?: string;
   /** Present only when the source supplied both an actual and a forecast in the same unit. */

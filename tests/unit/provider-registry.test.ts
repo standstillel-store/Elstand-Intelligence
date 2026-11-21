@@ -26,7 +26,7 @@ const fredKey = (): string => 'a'.repeat(32);
 describe('provider registry', () => {
   it('knows every provider once, in the order of the brief', () => {
     assert.deepEqual([...PROVIDER_ORDER], [...PROVIDER_IDS]);
-    assert.equal(new Set(PROVIDER_IDS).size, 10);
+    assert.equal(new Set(PROVIDER_IDS).size, 13);
     for (const id of PROVIDER_IDS) assert.equal(PROVIDER_SPECS[id].id, id);
   });
 
@@ -49,16 +49,19 @@ describe('provider registry', () => {
     }
     assert.equal(
       unreadyMessage(all.financecalendar),
-      'ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing. Economic calendar events from Finance Calendar are unavailable.',
+      'ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing. The optional Finance Calendar source is disabled; the economic calendar does not depend on it.',
     );
     // Keys that are optional, and providers that need none, are ready without any variable.
-    for (const id of ['bls', 'frankfurter', 'worldbank'] as const) {
+    for (const id of ['bls', 'frankfurter', 'worldbank', 'showmytrades', 'xoomar'] as const) {
       const reading = all[id];
       assert.equal(reading.kind, 'ready', id);
       assert.equal(reading.kind === 'ready' ? reading.apiKey : 'x', null, `${id} runs keyless`);
     }
     assert.equal(unreadyMessage(all.imf), NO_ENDPOINT_MESSAGE);
     assert.equal(all.imf.kind, 'no-endpoint');
+    // AriB is never read as ready, with or without a variable: no request is ever sent to it.
+    assert.equal(all.arib.kind, 'license-gated');
+    assert.match(unreadyMessage(all.arib) ?? '', /^LICENSE-GATED — AriB Research permits only/);
   });
 
   it('does not let one missing or invalid variable affect another provider', () => {
@@ -182,7 +185,7 @@ describe('provider registry', () => {
     );
     assert.deepEqual(
       providersFor('economic-calendar').map((spec) => spec.id),
-      ['financecalendar'],
+      ['showmytrades', 'xoomar', 'arib', 'financecalendar'],
     );
     assert.deepEqual(
       providersFor('financial-news').map((spec) => spec.id),

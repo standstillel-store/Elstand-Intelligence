@@ -3,7 +3,7 @@
 Elstand Intelligence is a static single-page application and a small server API, written in strict
 TypeScript with **no runtime dependencies**. The browser never talks to a data vendor. It talks to
 the Elstand API on its own origin, and the API talks to each data provider with a key the browser
-never sees. Ten providers are reached this way, grouped by what they supply (forex market data,
+never sees. Thirteen providers are reached this way, grouped by what they supply (forex market data,
 economic calendar, financial news, macro observations, reference rates) and never connected to the
 frontend directly.
 
@@ -97,20 +97,20 @@ of a retryable failure, **adapter** (the request and its strict parsing), **vali
 provider failed" are states of the product, shown in words. Only a request that cannot be understood,
 the wrong method or a defect in this server is an HTTP error.
 
-| Module                                                                                         | Responsibility                                                                                                                                                   |
-| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `server/provider-registry.ts`                                                                  | The ten providers: variables, credential rule, capabilities, limits, request budgets and what a missing or invalid configuration is called.                      |
-| `server/provider-runtime.ts`, `server/limiter.ts`                                              | One budget per provider (a window per minute and per day), checked before any request is made. A request over budget is not sent.                                |
-| `server/cache.ts`, `server/cache-policy.ts`                                                    | The in-memory cache with request coalescing, and the per-kind lifetimes: how long a copy is fresh, how long it may be served after a failure, when it is STALE.  |
-| `server/retry.ts`                                                                              | One bounded retry, only for a failure that can pass (a timeout or a 5xx), never for a rejected credential or a rate limit.                                       |
-| `server/provider-http.ts`                                                                      | The one HTTP path of every adapter but Twelve Data's: https only, no redirects, a timeout and a size cap, and no credential in any message.                      |
-| the adapters                                                                                   | `twelvedata`, `alphavantage`, `fred`, `financecalendar`, `marketaux`, `frankfurter`, `worldbank`, `bls`, `bea`: build the request and parse the answer strictly. |
-| `server/service.ts`                                                                            | The shared request path: budget, cache, retry, validation and provenance for one datum, plus the sentences the states are written with.                          |
-| `server/forex-service.ts`                                                                      | Quotes and candles, and the capability-aware fallback to Alpha Vantage.                                                                                          |
-| `server/macro-service.ts`, `server/macro-catalog.ts`                                           | Macro series, and the bubbles calculated from them. The catalog lists each series, its unit and its source.                                                      |
-| `server/feeds-service.ts`                                                                      | The calendar, the news and the reference rates.                                                                                                                  |
-| `server/probe.ts`                                                                              | One real request to one provider, on demand, for the provider page.                                                                                              |
-| `server/capability-handlers.ts`, `server/handlers.ts`, `server/router.ts`, `server/respond.ts` | The endpoints, their parameter checks and their headers. Nine functions in `api/`, one call each.                                                                |
+| Module                                                                                         | Responsibility                                                                                                                                                                                                                       |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `server/provider-registry.ts`                                                                  | The thirteen providers: variables, credential rule, capabilities, limits, request budgets and what a missing or invalid configuration is called.                                                                                     |
+| `server/provider-runtime.ts`, `server/limiter.ts`                                              | One budget per provider (a window per minute and per day), checked before any request is made. A request over budget is not sent.                                                                                                    |
+| `server/cache.ts`, `server/cache-policy.ts`                                                    | The in-memory cache with request coalescing, and the per-kind lifetimes: how long a copy is fresh, how long it may be served after a failure, when it is STALE.                                                                      |
+| `server/retry.ts`                                                                              | One bounded retry, only for a failure that can pass (a timeout or a 5xx), never for a rejected credential or a rate limit.                                                                                                           |
+| `server/provider-http.ts`                                                                      | The one HTTP path of every adapter but Twelve Data's: https only, no redirects, a timeout and a size cap, and no credential in any message.                                                                                          |
+| the adapters                                                                                   | `twelvedata`, `alphavantage`, `fred`, `showmytrades`, `xoomar`, `financecalendar`, `marketaux`, `frankfurter`, `worldbank`, `bls`, `bea`: build the request and parse the answer strictly. AriB has none, by design (license-gated). |
+| `server/service.ts`                                                                            | The shared request path: budget, cache, retry, validation and provenance for one datum, plus the sentences the states are written with.                                                                                              |
+| `server/forex-service.ts`                                                                      | Quotes and candles, and the capability-aware fallback to Alpha Vantage.                                                                                                                                                              |
+| `server/macro-service.ts`, `server/macro-catalog.ts`                                           | Macro series, and the bubbles calculated from them. The catalog lists each series, its unit and its source.                                                                                                                          |
+| `server/feeds-service.ts`                                                                      | The calendar (ShowMyTrades, then XOOMAR, then the optional Finance Calendar), the news and the reference rates.                                                                                                                      |
+| `server/probe.ts`                                                                              | One real request to one provider, on demand, for the provider page.                                                                                                                                                                  |
+| `server/capability-handlers.ts`, `server/handlers.ts`, `server/router.ts`, `server/respond.ts` | The endpoints, their parameter checks and their headers. Nine functions in `api/`, one call each.                                                                                                                                    |
 
 Budgets and caches are kept per server instance. The `Cache-Control` headers let a CDN share one
 answer between visitors, which is what keeps several instances from multiplying the requests a
@@ -170,7 +170,7 @@ environment, because it needs a secret.
 
 - **Secrets stay on the server.** Every key is read by the server only (`server/env.ts`,
   `server/provider-registry.ts`). Twelve Data's key travels in the `Authorization` header and the
-  Finance Calendar's in `X-API-Key`; the providers that define no header (FRED, Alpha Vantage,
+  Finance Calendar's and XOOMAR's in `X-API-Key`; the providers that define no header (FRED, Alpha Vantage,
   Marketaux and BEA take the key in the address, BLS in the request body) get it there, which is why
   no message ever contains an address, and why redirects are refused so a key cannot be forwarded to
   another host. Provider text is sanitized and any echo of a key redacted. `/api/status` and

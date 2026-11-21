@@ -65,7 +65,7 @@ describe('provider status: no environment', () => {
     await app.close();
   });
 
-  it('is one link away in the footer, and lists the ten providers by name', async () => {
+  it('is one link away in the footer, and lists the thirteen providers by name', async () => {
     const watched = await session.newPage();
     try {
       await watched.page.goto(`${app.url}/`);
@@ -80,6 +80,9 @@ describe('provider status: no environment', () => {
           'Twelve Data',
           'Alpha Vantage',
           'FRED',
+          'ShowMyTrades',
+          'XOOMAR',
+          'AriB Research',
           'Finance Calendar',
           'Marketaux',
           'Frankfurter',
@@ -112,9 +115,23 @@ describe('provider status: no environment', () => {
       assert.match(calendar, /FINANCE_CALENDAR_API_KEY is not set\./);
       assert.match(
         calendar,
-        /ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing\. Economic calendar events from Finance Calendar are unavailable\./,
-        'the provider has no anonymous access, so a missing key is a missing connection',
+        /ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing\. The optional Finance Calendar source is disabled; the economic calendar does not depend on it\./,
+        'the paid source is optional: its missing key disables only that source',
       );
+    });
+  });
+
+  it('shows AriB Research as LICENSE-GATED: never connected, never asked, and not “missing a key”', async () => {
+    await withProviders(app, async ({ page }) => {
+      assert.deepEqual(await states(page, 'arib'), ['UNAVAILABLE']);
+      const arib = await text(page, provider('arib'));
+      assert.match(
+        arib,
+        /LICENSE-GATED — AriB Research permits only personal and internal use of its free tier\. Elstand does not use it as a production source without the provider’s written permission, so no request is sent\./,
+      );
+      assert.doesNotMatch(arib, /ENV NOT CONNECTED|is missing|is not set/);
+      assert.equal(await page.locator('[data-verify="arib"]').isDisabled(), true);
+      assert.equal(await page.locator('[data-verify="arib"]').innerText(), 'No request is sent');
     });
   });
 
@@ -132,10 +149,15 @@ describe('provider status: no environment', () => {
 
   it('shows a provider that needs no key as configured but not verified, never as connected', async () => {
     await withProviders(app, async ({ page }) => {
-      for (const id of ['frankfurter', 'worldbank', 'bls']) {
+      for (const id of ['frankfurter', 'worldbank', 'bls', 'showmytrades', 'xoomar']) {
         assert.deepEqual(await states(page, id), [NOT_VERIFIED], id);
       }
       assert.match(await text(page, provider('frankfurter')), /No credential is needed\./);
+      assert.match(await text(page, provider('showmytrades')), /No credential is needed\./);
+      assert.match(
+        await text(page, provider('xoomar')),
+        /XOOMAR_API_KEY is not set; used without a key \(optional\)\./,
+      );
       assert.match(
         await text(page, provider('bls')),
         /BLS_API_KEY is not set; used without a key \(optional\)\./,
@@ -176,6 +198,7 @@ describe('provider status: no environment', () => {
         'marketaux',
         'bea',
         'imf',
+        'arib',
       ]) {
         assert.equal(
           await page.locator(`[data-verify="${id}"]`).isDisabled(),
@@ -183,7 +206,7 @@ describe('provider status: no environment', () => {
           `${id} is off`,
         );
       }
-      for (const id of ['frankfurter', 'worldbank', 'bls']) {
+      for (const id of ['frankfurter', 'worldbank', 'bls', 'showmytrades', 'xoomar']) {
         assert.equal(await page.locator(`[data-verify="${id}"]`).isEnabled(), true, `${id} is on`);
       }
       assert.equal(await page.locator('[data-verify="imf"]').innerText(), 'No endpoint to check');

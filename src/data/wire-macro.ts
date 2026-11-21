@@ -7,6 +7,7 @@ import {
 } from './macro-bubbles.js';
 import type {
   CalendarEvent,
+  EventConfidence,
   EventStatus,
   EventSurprise,
   EventTimePrecision,
@@ -75,6 +76,8 @@ export interface WireCalendarData {
     readonly tier: string | null;
   };
   readonly attribution: WireAttribution;
+  /** What this provider never covers or supplies, and what its window leaves out, in words. */
+  readonly notes: readonly string[];
 }
 
 export interface WireNewsData {
@@ -171,6 +174,12 @@ const EVENT_STATUSES: readonly EventStatus[] = [
   'rescheduled',
   'cancelled',
 ];
+const CONFIDENCES: readonly EventConfidence[] = [
+  'official',
+  'sources_agree',
+  'single_source',
+  'sources_disagree',
+];
 const ADJUSTMENTS = ['seasonally adjusted', 'not seasonally adjusted'] as const;
 const isAdjustmentOrNull = (value: unknown): value is (typeof ADJUSTMENTS)[number] | null =>
   value === null || oneOf(ADJUSTMENTS, value);
@@ -245,6 +254,16 @@ function parseExcluded(input: unknown): Parsed<readonly WireExcluded[]> {
 
 // ---- calendar -----------------------------------------------------------------------------------------
 
+function parseNotes(input: unknown): Parsed<readonly string[]> {
+  if (!Array.isArray(input)) return fail('the list of notes is malformed');
+  const notes: string[] = [];
+  for (const note of input as unknown[]) {
+    if (!isText(note)) return fail('a note is malformed');
+    notes.push(note);
+  }
+  return ok(notes);
+}
+
 function parseSurprise(input: unknown): Parsed<EventSurprise> {
   if (!isRecord(input)) return fail('a surprise is not an object');
   const { value, unit, basis } = input;
@@ -288,6 +307,24 @@ function parseEvent(input: unknown): Parsed<CalendarEvent> {
     if (!isText(rawStage)) return fail(`event ${id} has a malformed stage`);
     stage = rawStage;
   }
+  let period: string | undefined;
+  const rawPeriod = input['period'];
+  if (rawPeriod !== undefined) {
+    if (!isText(rawPeriod)) return fail(`event ${id} has a malformed period`);
+    period = rawPeriod;
+  }
+  let confidence: EventConfidence | undefined;
+  const rawConfidence = input['confidence'];
+  if (rawConfidence !== undefined) {
+    if (!oneOf(CONFIDENCES, rawConfidence)) return fail(`event ${id} has an unknown confidence`);
+    confidence = rawConfidence;
+  }
+  let movedFromMs: number | undefined;
+  const rawMovedFrom = input['movedFromMs'];
+  if (rawMovedFrom !== undefined) {
+    if (!isTime(rawMovedFrom)) return fail(`event ${id} has a malformed moved-from time`);
+    movedFromMs = rawMovedFrom;
+  }
   const surpriseInput = input['surprise'];
   let surprise: EventSurprise | undefined;
   if (surpriseInput !== undefined) {
@@ -301,6 +338,9 @@ function parseEvent(input: unknown): Parsed<CalendarEvent> {
     timeMs,
     ...(precision === undefined ? {} : { timePrecision: precision }),
     ...(status === undefined ? {} : { status }),
+    ...(movedFromMs === undefined ? {} : { movedFromMs }),
+    ...(period === undefined ? {} : { period }),
+    ...(confidence === undefined ? {} : { confidence }),
     ...(stage === undefined ? {} : { stage }),
     ...(surprise === undefined ? {} : { surprise }),
     currency,
@@ -341,6 +381,8 @@ function parseCalendarData(input: unknown): Parsed<WireCalendarData> {
   if (!isCountOrNull(input['total']) || typeof input['truncated'] !== 'boolean') {
     return fail('the calendar totals are malformed');
   }
+  const notes = parseNotes(input['notes']);
+  if (notes.ok === false) return fail(notes.error);
   return ok({
     events,
     excluded: excluded.value,
@@ -348,6 +390,7 @@ function parseCalendarData(input: unknown): Parsed<WireCalendarData> {
     truncated: input['truncated'],
     quota: { limit: quota['limit'], remaining: quota['remaining'], tier: quota['tier'] },
     attribution: attribution.value,
+    notes: notes.value,
   });
 }
 

@@ -15,24 +15,27 @@ a watchlist, a chart, a depth panel and a reasoning workspace, not a dashboard o
 
 ## What it contains
 
-| Area                       | What exists                                                                                                                                  | With nothing connected                                                                                              |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Forex watchlist            | EUR/USD, GBP/USD, USD/JPY, AUD/USD, USD/CAD, USD/CHF, NZD/USD, XAU/USD. Search, select, LIVE / DELAYED / STALE label per quote.              | ENV NOT CONNECTION                                                                                                  |
-| Candlestick chart          | M5, M15, M30, H1, H4, D1. Pan, zoom, crosshair, keyboard control, data table.                                                                | ENV NOT CONNECTION                                                                                                  |
-| Market depth               | Bids and asks drawn separately, with the venue and the observation time beside every number.                                                 | ENV NOT CONNECTION, then (once connected) UNAVAILABLE with the reason. See [Depth](#depth-is-not-a-universal-book). |
-| ELVOID reasoning workspace | Five explicit states, eight fixed sections, a validator for everything an engine returns, a 13-module registry.                              | NOT CONFIGURED. No engine is shipped.                                                                               |
-| Macro: volatility surface  | A genuine 3D surface (orbit, zoom, keyboard, hover), its data contract and validation.                                                       | ENV NOT CONNECTION and the reason no adapter exists                                                                 |
-| Macro: Surface VI          | Event-proximity waves for the high-impact events of the economic calendar, with countdowns. See [docs/EVENT-WAVES.md](docs/EVENT-WAVES.md).  | ENV NOT CONNECTED — Economic calendar provider unavailable. Surface VI event waves are disabled.                    |
-| Macro: bubbles             | One bubble per currency (policy rate, CPI, one-month change) with a documented encoding. See [docs/MACRO-BUBBLES.md](docs/MACRO-BUBBLES.md). | ENV NOT CONNECTION and the reason                                                                                   |
-| Macro: series              | Policy rates, inflation, labor and GDP observations with their source, unit and times.                                                       | ENV NOT CONNECTION, naming the missing variable                                                                     |
-| Macro: news and calendar   | Attributed items, time zones, impact classification shown with who assigned it.                                                              | ENV NOT CONNECTION and the reason                                                                                   |
-| Provider status            | For each of the ten providers, each capability and endpoint: state, last retrieval, data time, cache use, what is missing. No secret shown.  | Every provider listed, each saying what is missing                                                                  |
+| Area                       | What exists                                                                                                                                      | With nothing connected                                                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Forex watchlist            | EUR/USD, GBP/USD, USD/JPY, AUD/USD, USD/CAD, USD/CHF, NZD/USD, XAU/USD. Search, select, LIVE / DELAYED / STALE label per quote.                  | ENV NOT CONNECTION                                                                                                  |
+| Candlestick chart          | M5, M15, M30, H1, H4, D1. Pan, zoom, crosshair, keyboard control, data table.                                                                    | ENV NOT CONNECTION                                                                                                  |
+| Market depth               | Bids and asks drawn separately, with the venue and the observation time beside every number.                                                     | ENV NOT CONNECTION, then (once connected) UNAVAILABLE with the reason. See [Depth](#depth-is-not-a-universal-book). |
+| ELVOID reasoning workspace | Five explicit states, eight fixed sections, a validator for everything an engine returns, a 13-module registry.                                  | NOT CONFIGURED. No engine is shipped.                                                                               |
+| Macro: volatility surface  | A genuine 3D surface (orbit, zoom, keyboard, hover), its data contract and validation.                                                           | ENV NOT CONNECTION and the reason no adapter exists                                                                 |
+| Macro: Surface VI          | Event-proximity waves for the high-impact events of the economic calendar, with countdowns. See [docs/EVENT-WAVES.md](docs/EVENT-WAVES.md).      | UNAVAILABLE or ERROR with the reason of each calendar source, and: Surface VI event waves are disabled.             |
+| Macro: bubbles             | One bubble per currency (policy rate, CPI, one-month change) with a documented encoding. See [docs/MACRO-BUBBLES.md](docs/MACRO-BUBBLES.md).     | ENV NOT CONNECTION and the reason                                                                                   |
+| Macro: series              | Policy rates, inflation, labor and GDP observations with their source, unit and times.                                                           | ENV NOT CONNECTION, naming the missing variable                                                                     |
+| Macro: news and calendar   | Attributed items, time zones, impact classification shown with who assigned it.                                                                  | ENV NOT CONNECTION and the reason                                                                                   |
+| Provider status            | For each of the thirteen providers, each capability and endpoint: state, last retrieval, data time, cache use, what is missing. No secret shown. | Every provider listed, each saying what is missing                                                                  |
 
-**Ten providers, grouped by what they supply**, each behind a server-side adapter, never reached
+**Thirteen providers, grouped by what they supply**, each behind a server-side adapter, never reached
 from the browser: [Twelve Data](https://twelvedata.com) (forex quotes and candles), Alpha Vantage
 (a fallback for daily candles and spot quotes only), FRED, the BLS, the BEA, the World Bank and the
-IMF (macro observations; the IMF has no supported endpoint and says UNAVAILABLE), Finance Calendar
-(the economic calendar), Marketaux (news) and Frankfurter (daily reference rates). Every key is read
+IMF (macro observations; the IMF has no supported endpoint and says UNAVAILABLE), Marketaux (news)
+and Frankfurter (daily reference rates). **The economic calendar needs no key:** ShowMyTrades is its
+primary source and XOOMAR (U.S. agency releases only, no forecast) its fallback. AriB Research is
+license-gated (personal and internal use only) and is never asked; Finance Calendar, a paid source,
+is optional and asked only when its key is set. Every key is read
 on the server only and never reaches the browser. **Depth and options have no provider**, so those
 modules show what they are missing. They are not filled in.
 
@@ -131,17 +134,17 @@ The dependency order is one-way and enforced by `npm run lint:policy`; see
 
 ## Documentation
 
-| Document                                         | Covers                                                                                                                                                                 |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)     | Layers, data flow, the connection state machine, UI conventions, security headers, the build.                                                                          |
-| [docs/DATA-INTEGRITY.md](docs/DATA-INTEGRITY.md) | What "real data only" means in code: the states, provenance, validation, fallback rules, nothing repaired, what is not verified.                                       |
-| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)       | Every environment variable, each of the ten providers (limits, how to check it, what is shown when it is missing), caching, licensing, the first-connection checklist. |
-| [docs/EVENT-WAVES.md](docs/EVENT-WAVES.md)       | Surface VI: what the event-proximity waves draw, from what, and what they do not claim.                                                                                |
-| [docs/ELVOID.md](docs/ELVOID.md)                 | The five states, the result contract, what the validator refuses, the improvement lifecycle, how an engine would be connected.                                         |
-| [docs/ELVOID-MODULES.md](docs/ELVOID-MODULES.md) | The 13 modules and their status. Generated from the registry.                                                                                                          |
-| [docs/MACRO-BUBBLES.md](docs/MACRO-BUBBLES.md)   | The bubble chart encoding, to the formula, and where its three values come from.                                                                                       |
-| [docs/DESIGN.md](docs/DESIGN.md)                 | Palette, where the neon green may be used, measured contrast, density and accessibility rules.                                                                         |
-| [docs/TESTING.md](docs/TESTING.md)               | Test layers, why fixtures cannot reach the product, how to run each suite.                                                                                             |
+| Document                                         | Covers                                                                                                                                                                      |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)     | Layers, data flow, the connection state machine, UI conventions, security headers, the build.                                                                               |
+| [docs/DATA-INTEGRITY.md](docs/DATA-INTEGRITY.md) | What "real data only" means in code: the states, provenance, validation, fallback rules, nothing repaired, what is not verified.                                            |
+| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)       | Every environment variable, each of the thirteen providers (limits, how to check it, what is shown when it is missing), caching, licensing, the first-connection checklist. |
+| [docs/EVENT-WAVES.md](docs/EVENT-WAVES.md)       | Surface VI: what the event-proximity waves draw, from what, and what they do not claim.                                                                                     |
+| [docs/ELVOID.md](docs/ELVOID.md)                 | The five states, the result contract, what the validator refuses, the improvement lifecycle, how an engine would be connected.                                              |
+| [docs/ELVOID-MODULES.md](docs/ELVOID-MODULES.md) | The 13 modules and their status. Generated from the registry.                                                                                                               |
+| [docs/MACRO-BUBBLES.md](docs/MACRO-BUBBLES.md)   | The bubble chart encoding, to the formula, and where its three values come from.                                                                                            |
+| [docs/DESIGN.md](docs/DESIGN.md)                 | Palette, where the neon green may be used, measured contrast, density and accessibility rules.                                                                              |
+| [docs/TESTING.md](docs/TESTING.md)               | Test layers, why fixtures cannot reach the product, how to run each suite.                                                                                                  |
 
 ## Known limitations
 
@@ -156,12 +159,16 @@ These are stated here so nobody has to discover them.
   says UNAVAILABLE. Its book rendering is verified against test fixtures, not against a real venue.
 - **The volatility surface has no data adapter**, so its available-state rendering is verified with
   test fixtures only. The fixtures live under `tests/` and cannot be bundled into the product.
-- **Five providers are not verified live.** Twelve Data, Frankfurter, the World Bank and the BLS
+- **Several providers are not verified live.** Twelve Data, Frankfurter, the World Bank and the BLS
   have been run against their live APIs from the production deployment. Alpha Vantage, FRED,
-  Marketaux, the BEA and Finance Calendar need keys that were not available (Finance Calendar has no
-  anonymous access: its key comes with a paid plan), so their adapters are verified against
+  Marketaux and the BEA need keys that were not available, so their adapters are verified against
   documented response shapes only. Until a key is set, each says ENV NOT CONNECTED. The IMF has no
-  endpoint. See [docs/DATA-INTEGRITY.md](docs/DATA-INTEGRITY.md#what-is-not-verified).
+  endpoint. The two free calendar sources are verified against documented response shapes, and the
+  record of any live check is in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md#showmytrades).
+- **Public use of the free calendar sources is not confirmed.** ShowMyTrades forbids reselling its
+  calendar or exposing it as a public calendar API, and XOOMAR's free licence allows no
+  redistribution; Elstand's `/api/calendar` is a relay. The operator must confirm permission before a
+  public deployment. See [Licensing](docs/ENVIRONMENT.md#licensing). See [docs/DATA-INTEGRITY.md](docs/DATA-INTEGRITY.md#what-is-not-verified).
 - **Free plans are small.** Twelve Data's Basic plan allows 800 requests a day, which the default
   60-second refresh spends in under two hours of an open page. Raise
   `ELSTAND_REFRESH_SECONDS` or use a larger plan; see

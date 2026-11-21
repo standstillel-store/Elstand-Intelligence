@@ -107,7 +107,7 @@ describe('calendar: events from a connected provider', () => {
       await page.waitForSelector(`${CALENDAR} article[data-event-id]`);
       assert.equal(
         await item(page, CALENDAR, 'ev-1'),
-        '06 Jan 2026, 14:00 UTC USD · US HIGH rated by Fixture calendar rating Fixture inflation release Actual 2.3% Forecast 2.1% Previous 2.0% Source: Fixture calendar retrieved 2026-01-06 11:58 UTC',
+        '06 Jan 2026, 14:00 UTC USD · US HIGH rated by Fixture calendar rating Fixture inflation release Actual 2.3% Forecast 2.1% Previous 2.0% Surprise +0.2 % (actual minus forecast, both as published by the fixture calendar) · CALCULATED Source: Fixture calendar retrieved 2026-01-06 11:58 UTC',
       );
       // Only the figures that exist are shown: no placeholder, no zero.
       assert.equal(
@@ -475,7 +475,7 @@ describe('calendar and news: no data', () => {
       await page.waitForSelector(`${NEWS} .env-block`);
       assert.deepEqual(await envBlock(page, CALENDAR), {
         label: 'ENV NOT CONNECTION',
-        detail: 'A calendar provider is not connected.',
+        detail: 'An economic calendar source is not connected.',
         note: 'No fixture feed is connected.',
       });
       assert.deepEqual(await envBlock(page, NEWS), {

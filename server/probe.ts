@@ -2,7 +2,14 @@ import { findInstrument } from '../src/core/instruments.js';
 import { formatProviderTime, type ProviderId } from '../src/core/provider-state.js';
 import type { Provenance } from '../src/data/provenance.js';
 import type { AuthenticationResult, WireProbe } from '../src/data/wire-providers.js';
-import { defaultCalendarDays, loadCalendar, loadNews, loadRates } from './feeds-service.js';
+import {
+  defaultCalendarDays,
+  loadFinanceCalendar,
+  loadNews,
+  loadRates,
+  loadShowMyTrades,
+  loadXoomar,
+} from './feeds-service.js';
 import { loadPrimaryQuote, loadSpotProbe } from './forex-service.js';
 import { FRED_SERIES, WORLD_BANK_INDICATORS } from './macro-catalog.js';
 import { loadBeaGroup, loadBlsGroup, loadFredSeries, loadWorldBankGroup } from './macro-service.js';
@@ -39,8 +46,14 @@ function requestFor(deps: ServiceDeps, id: ProviderId): Promise<Outcome<unknown>
       if (series === undefined) throw new Error('The FRED catalog is empty.');
       return loadFredSeries(deps, series);
     }
+    // Each calendar source is checked by itself, never through the router: a check of the primary
+    // must not spend a request of the fallback, and the other way round.
+    case 'showmytrades':
+      return loadShowMyTrades(deps, defaultCalendarDays(deps.now()));
+    case 'xoomar':
+      return loadXoomar(deps, defaultCalendarDays(deps.now()));
     case 'financecalendar':
-      return loadCalendar(deps, defaultCalendarDays(deps.now()));
+      return loadFinanceCalendar(deps, defaultCalendarDays(deps.now()));
     case 'marketaux':
       return loadNews(deps);
     case 'frankfurter':
@@ -55,7 +68,8 @@ function requestFor(deps: ServiceDeps, id: ProviderId): Promise<Outcome<unknown>
     case 'bea':
       return loadBeaGroup(deps);
     default:
-      // IMF has no verified endpoint, so `readProvider` never reports it as ready.
+      // IMF has no verified endpoint and AriB is license-gated, so `readProvider` never reports
+      // either as ready.
       throw new Error(`Provider ${id} has no connection check.`);
   }
 }

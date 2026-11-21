@@ -49,6 +49,9 @@ export interface ProviderGroup {
 
 function configurationText(config: WireProviderConfig): string {
   if (config.config === 'no-endpoint') return 'No supported endpoint exists in this build.';
+  if (config.config === 'license-gated') {
+    return 'LICENSE-GATED. No request is ever sent to this provider, and no variable exists for it.';
+  }
   if (config.config === 'env-not-connected') {
     return config.keyVariable === null
       ? 'A required setting is missing.'
@@ -96,7 +99,7 @@ function labelled(capability: Capability): {
 /** The provider cannot be asked at all: say that, whatever an old answer once said. */
 function unreadyRow(config: WireProviderConfig, capability: Capability): ProviderRow {
   const status: RowStatus =
-    config.config === 'no-endpoint'
+    config.config === 'no-endpoint' || config.config === 'license-gated'
       ? 'UNAVAILABLE'
       : config.config === 'env-not-connected'
         ? 'ENV NOT CONNECTED'

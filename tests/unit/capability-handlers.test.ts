@@ -26,6 +26,15 @@ import {
   parseNews,
   parseRates,
 } from '../../src/data/wire-macro.js';
+import {
+  FC_HOST,
+  SMT_HOST,
+  XOOMAR_HOST,
+  financeCalendarBody,
+  smtBody,
+  smtEvent,
+  xoomarBody,
+} from '../support/calendar-providers.js';
 import { FIXTURE_NOW } from '../support/fixtures.js';
 import {
   createFakeProviders,
@@ -93,30 +102,20 @@ const PUBLIC_CACHE = /^public, max-age=0, s-maxage=\d+$/;
 
 // ---- stand-in provider payloads ------------------------------------------------------------------
 
-const calendarEvent = (over: Record<string, unknown> = {}) => ({
-  id: 101,
-  name: 'Consumer Price Index (YoY)',
-  country: 'US',
-  category: 'inflation',
-  impact: 'high',
-  date: '2026-01-07',
-  release_at_utc: '2026-01-07T13:30:00Z',
-  status: 'confirmed',
-  consensus: null,
-  prior: '2.7',
-  actual: null,
-  unit: '%',
-  source_name: 'U.S. Bureau of Labor Statistics',
-  source_url: 'https://www.bls.gov/cpi/',
-  ...over,
-});
-
-const calendarRoute =
-  (events: unknown[] = [calendarEvent()]): Route =>
+/** ShowMyTrades answers; every other host is unknown to this route. */
+const smtRoute =
+  (events?: unknown[]): Route =>
   (call) =>
-    call.host === 'www.financecalendar.com'
-      ? { events, count: events.length, total: events.length }
-      : undefined;
+    call.host === SMT_HOST ? smtBody(events) : undefined;
+
+/** ShowMyTrades is down, XOOMAR answers, and the optional Finance Calendar is asked last. */
+const xoomarOnlyRoute =
+  (events?: unknown[]): Route =>
+  (call) => {
+    if (call.host === SMT_HOST) return json({ error: 'down' }, 503);
+    if (call.host === XOOMAR_HOST) return xoomarBody(events);
+    return undefined;
+  };
 
 const newsArticle = (over: Record<string, unknown> = {}) => ({
   uuid: 'a1b2c3',
@@ -157,73 +156,161 @@ const blsRoute: Route = (call) =>
 // ---- calendar ---------------------------------------------------------------------------------------
 
 describe('GET /api/calendar', () => {
-  it('is ENV NOT CONNECTED, naming the variable, without the Finance Calendar key, and asks nothing', async () => {
-    // The provider has no anonymous access, so no request is sent without a key.
-    const deps = harness({}, nothing);
-    const response = await handleCalendar(get('/api/calendar'), deps);
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get('Cache-Control'), 'no-store');
-    assert.equal(deps.fake.calls.length, 0);
-    const parsed = parseCalendar(await bodyOf(response));
-    assert.ok(parsed.ok, parsed.ok ? '' : parsed.error);
-    if (!parsed.ok) return;
-    assert.equal(parsed.value.data, null);
-    assert.equal(parsed.value.provenance.state, 'ENV NOT CONNECTED');
-    assert.equal(
-      parsed.value.provenance.message,
-      'ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing. Economic calendar events from Finance Calendar are unavailable.',
-    );
-  });
-
-  it('says ERROR, not ENV NOT CONNECTED, when the provider refuses the key it was given', async () => {
-    const deps = harness({ [ENV_FINANCE_CALENDAR_KEY]: KEY }, (call) =>
-      call.host === 'www.financecalendar.com'
-        ? json({ error: `A valid API key is required for ${KEY}.` }, 401)
-        : undefined,
-    );
-    const response = await read(await handleCalendar(get('/api/calendar'), deps));
-    const parsed = parseCalendar(response.body);
-    assert.ok(parsed.ok, parsed.ok ? '' : parsed.error);
-    if (!parsed.ok) return;
-    assert.equal(parsed.value.data, null);
-    assert.equal(parsed.value.provenance.state, 'ERROR');
-    assert.equal(
-      parsed.value.provenance.message,
-      'ERROR — Finance Calendar rejected the configured API key (HTTP 401).',
-    );
-    assert.ok(!response.everything.includes(KEY), 'the key never reaches the browser');
-    assert.equal(deps.fake.calls.length, 1, 'a refused key is not retried');
-  });
-
-  it('answers for today and the next seven days with its attribution', async () => {
-    const deps = harness({ [ENV_FINANCE_CALENDAR_KEY]: KEY }, calendarRoute());
+  it('answers with no credential at all, from ShowMyTrades, and says so', async () => {
+    const deps = harness({}, smtRoute());
     const response = await handleCalendar(get('/api/calendar'), deps);
     assert.equal(response.status, 200);
     assert.match(response.headers.get('Cache-Control') ?? '', PUBLIC_CACHE);
     const parsed = parseCalendar(await bodyOf(response));
     assert.ok(parsed.ok, parsed.ok ? '' : parsed.error);
     if (!parsed.ok) return;
-    assert.equal(parsed.value.provenance.state, 'DELAYED');
-    assert.equal(parsed.value.provenance.provider, 'financecalendar');
-    assert.equal(parsed.value.data?.events.length, 1);
-    assert.equal(parsed.value.data?.events[0]?.timePrecision, 'exact');
-    assert.equal(parsed.value.data?.attribution.url, 'https://www.financecalendar.com');
-    const sent = deps.fake.calls[0];
-    assert.equal(sent?.params['from'], '2026-01-06');
-    assert.equal(sent?.params['to'], '2026-01-13');
+    const { provenance, data } = parsed.value;
+    assert.equal(provenance.provider, 'showmytrades');
+    assert.equal(provenance.state, 'DELAYED', 'an HTTP 200 is not "live"');
+    assert.equal(provenance.fallback, null);
+    assert.equal(provenance.cache, 'fresh');
+    assert.equal(data?.events.length, 1);
+    const event = data?.events[0];
+    assert.equal(event?.id, 'showmytrades:usd-test-inflation-release.20260107T1330');
+    assert.equal(event?.currency, 'USD');
+    assert.equal(event?.country, null);
+    assert.equal(event?.timePrecision, 'exact');
+    assert.equal(event?.impact?.classifiedBy, 'ShowMyTrades impact rating');
+    assert.equal(event?.forecast, '2.9%');
+    assert.equal(event?.actual, null, 'an empty actual is null, never a stand-in');
+    assert.equal(event?.period, '2025-12');
+    assert.equal(event?.confidence, 'sources_agree');
+    assert.equal(data?.attribution.name, 'Economic calendar by ShowMyTrades');
+    assert.equal(data?.attribution.url, 'https://showmytrades.com/tools/economic-calendar');
+    assert.ok(data?.notes.some((note) => note.includes('answers only from')));
+    const sent = deps.fake.calls;
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0]?.path, '/api/public/calendar/v1');
+    assert.equal(sent[0]?.params['days'], '8');
+    assert.equal(sent[0]?.params['impact'], 'high,medium,low');
+    assert.equal(sent[0]?.headers['x-api-key'], undefined, 'it sends no credential');
   });
 
-  it('passes a requested window through, and sends the key only to the provider', async () => {
-    const deps = harness({ [ENV_FINANCE_CALENDAR_KEY]: KEY }, calendarRoute());
-    const response = await handleCalendar(get('/api/calendar?from=2026-01-08&to=2026-01-10'), deps);
-    assert.equal(response.status, 200);
-    assert.equal(deps.fake.calls[0]?.params['from'], '2026-01-08');
-    assert.equal(deps.fake.calls[0]?.params['to'], '2026-01-10');
-    assert.equal(deps.fake.calls[0]?.headers['x-api-key'], KEY);
-    assert.ok(
-      !(await read(response)).everything.includes(KEY),
-      'the key never reaches the browser',
+  it('does not depend on the Finance Calendar key: it is never ENV NOT CONNECTED for want of it', async () => {
+    const deps = harness({}, smtRoute());
+    const parsed = parseCalendar(await bodyOf(await handleCalendar(get('/api/calendar'), deps)));
+    assert.ok(parsed.ok);
+    assert.notEqual(parsed.ok && parsed.value.provenance.state, 'ENV NOT CONNECTED');
+    assert.ok(deps.fake.calls.every((call) => call.host !== FC_HOST));
+  });
+
+  it('shares one request between windows that need the same number of days', async () => {
+    const deps = harness({}, smtRoute());
+    await handleCalendar(get('/api/calendar?from=2026-01-06&to=2026-01-08'), deps);
+    await handleCalendar(get('/api/calendar?from=2026-01-07&to=2026-01-09'), deps);
+    await handleCalendar(get('/api/calendar'), deps);
+    const asked = deps.fake.calls.filter((call) => call.host === SMT_HOST);
+    assert.deepEqual(
+      asked.map((call) => call.params['days']),
+      ['8'],
+      'all three windows are covered by the same eight-day answer, so ShowMyTrades is asked once',
     );
+  });
+
+  it('cuts the answer back to the requested window and says what the provider does not cover', async () => {
+    const early = smtEvent({
+      id: 'usd-early.20260106T0200',
+      ts: Date.UTC(2026, 0, 6, 2, 0) / 1000,
+      time: '2026-01-06T02:00:00Z',
+    });
+    const deps = harness({}, smtRoute([early, smtEvent()]));
+    const parsed = parseCalendar(
+      await bodyOf(await handleCalendar(get('/api/calendar?from=2026-01-07&to=2026-01-07'), deps)),
+    );
+    assert.ok(parsed.ok, parsed.ok ? '' : parsed.error);
+    if (!parsed.ok) return;
+    const ids = parsed.value.data?.events.map((event) => event.id);
+    assert.deepEqual(ids, ['showmytrades:usd-test-inflation-release.20260107T1330']);
+    assert.equal(
+      parsed.value.data?.notes.some((note) => note.includes('answers only from')),
+      false,
+      'that window starts after the provider’s own, so nothing is missing from it',
+    );
+  });
+
+  it('falls back to XOOMAR when ShowMyTrades cannot answer, and says why', async () => {
+    const deps = harness({}, xoomarOnlyRoute());
+    const response = await read(await handleCalendar(get('/api/calendar'), deps));
+    const parsed = parseCalendar(response.body);
+    assert.ok(parsed.ok, parsed.ok ? '' : parsed.error);
+    if (!parsed.ok) return;
+    const { provenance, data } = parsed.value;
+    assert.equal(provenance.provider, 'xoomar');
+    assert.equal(provenance.fallback?.from, 'showmytrades');
+    assert.match(provenance.fallback?.reason ?? '', /ShowMyTrades/);
+    assert.equal(data?.events[0]?.forecast, null, 'XOOMAR never publishes a forecast');
+    assert.equal(data?.events[0]?.surprise, undefined);
+    assert.ok(data?.notes.some((note) => note.includes('U.S. agency releases only')));
+    assert.equal(data?.attribution.name, 'XOOMAR');
+    assert.ok(deps.fake.calls.every((call) => call.host !== FC_HOST));
+  });
+
+  it('is UNAVAILABLE, with every source’s reason and no event, when nobody answers', async () => {
+    const deps = harness({}, () => json({ error: 'down' }, 503));
+    const response = await handleCalendar(get('/api/calendar'), deps);
+    assert.equal(
+      response.status,
+      200,
+      'a provider outage is a state of the product, not a fault of the request',
+    );
+    assert.equal(response.headers.get('Cache-Control'), 'no-store');
+    const parsed = parseCalendar(await bodyOf(response));
+    assert.ok(parsed.ok, parsed.ok ? '' : parsed.error);
+    if (!parsed.ok) return;
+    assert.equal(parsed.value.data, null);
+    assert.equal(parsed.value.provenance.state, 'UNAVAILABLE');
+    const message = parsed.value.provenance.message ?? '';
+    assert.match(message, /^UNAVAILABLE — No economic calendar source answered\./);
+    assert.match(message, /ShowMyTrades \(ERROR\)/);
+    assert.match(message, /XOOMAR \(ERROR\)/);
+  });
+
+  it('asks the optional Finance Calendar only when its key is set, and only after the free sources', async () => {
+    const withKey = { [ENV_FINANCE_CALENDAR_KEY]: KEY };
+    const down = (call: ProviderCallRecord): ProviderReply => {
+      if (call.host === FC_HOST) return financeCalendarBody();
+      return json({ error: 'down' }, 503);
+    };
+    const keyed = harness(withKey, down);
+    const parsed = parseCalendar(await bodyOf(await handleCalendar(get('/api/calendar'), keyed)));
+    assert.ok(parsed.ok, parsed.ok ? '' : parsed.error);
+    assert.equal(parsed.ok && parsed.value.provenance.provider, 'financecalendar');
+    assert.equal(parsed.ok && parsed.value.provenance.fallback?.from, 'showmytrades');
+    const hosts = keyed.fake.calls.map((call) => call.host);
+    assert.ok(hosts.indexOf(SMT_HOST) < hosts.indexOf(XOOMAR_HOST));
+    assert.ok(hosts.indexOf(XOOMAR_HOST) < hosts.indexOf(FC_HOST));
+    assert.equal(keyed.fake.calls.find((call) => call.host === FC_HOST)?.headers['x-api-key'], KEY);
+
+    const keyless = harness({}, down);
+    await handleCalendar(get('/api/calendar'), keyless);
+    assert.ok(keyless.fake.calls.every((call) => call.host !== FC_HOST));
+  });
+
+  it('passes a requested window through to the sources it asks', async () => {
+    const deps = harness({}, xoomarOnlyRoute());
+    await handleCalendar(get('/api/calendar?from=2026-01-08&to=2026-01-10'), deps);
+    const xoomar = deps.fake.calls.find((call) => call.host === XOOMAR_HOST);
+    assert.equal(xoomar?.params['from'], '2026-01-08');
+    assert.equal(xoomar?.params['to'], '2026-01-10');
+    assert.equal(xoomar?.headers['x-api-key'], undefined, 'without a key none is sent');
+  });
+
+  it('sends the optional XOOMAR key only to XOOMAR, and never to the browser', async () => {
+    const deps = harness({ XOOMAR_API_KEY: KEY }, xoomarOnlyRoute());
+    const response = await read(await handleCalendar(get('/api/calendar'), deps));
+    const xoomar = deps.fake.calls.find((call) => call.host === XOOMAR_HOST);
+    assert.equal(xoomar?.headers['x-api-key'], KEY);
+    assert.ok(
+      deps.fake.calls
+        .filter((call) => call.host !== XOOMAR_HOST)
+        .every((call) => !call.url.includes(KEY)),
+    );
+    assert.ok(!response.everything.includes(KEY), 'the key never reaches the browser');
   });
 
   it('refuses a window it cannot understand or should not allow, without asking the provider', async () => {
@@ -241,34 +328,6 @@ describe('GET /api/calendar', () => {
       assert.equal(response.status, 400, query);
       assert.equal(deps.fake.calls.length, 0, query);
     }
-  });
-
-  it('answers 200 with the state when the provider fails, and shares nothing', async () => {
-    const withKey = { [ENV_FINANCE_CALENDAR_KEY]: KEY };
-    const failing = harness(withKey, () => json({ error: 'down' }, 503));
-    const response = await handleCalendar(get('/api/calendar'), failing);
-    assert.equal(
-      response.status,
-      200,
-      'a provider outage is a state of the product, not a fault of the request',
-    );
-    assert.equal(response.headers.get('Cache-Control'), 'no-store');
-    const parsed = parseCalendar(await bodyOf(response));
-    assert.ok(parsed.ok);
-    if (!parsed.ok) return;
-    assert.equal(parsed.value.data, null);
-    assert.equal(parsed.value.provenance.state, 'ERROR');
-
-    const limited = harness(withKey, () => json({ error: 'slow down' }, 429));
-    const limitedBody = parseCalendar(
-      await bodyOf(await handleCalendar(get('/api/calendar'), limited)),
-    );
-    assert.ok(limitedBody.ok);
-    assert.equal(limitedBody.ok && limitedBody.value.provenance.state, 'RATE LIMITED');
-    assert.match(
-      (limitedBody.ok && limitedBody.value.provenance.message) || '',
-      /^RATE LIMITED — Finance Calendar rejected the request\./,
-    );
   });
 
   it('accepts GET only', async () => {
@@ -456,7 +515,7 @@ describe('GET /api/providers', () => {
     assert.ok(parsed.ok, parsed.ok ? '' : parsed.error);
     if (!parsed.ok) return;
     assert.equal(parsed.value.probe, null, 'no check was asked for, so none is reported');
-    assert.equal(parsed.value.providers.length, 10);
+    assert.equal(parsed.value.providers.length, 13);
     const fred = parsed.value.providers.find((entry) => entry.id === 'fred');
     assert.equal(fred?.config, 'ready');
     assert.equal(
@@ -466,6 +525,16 @@ describe('GET /api/providers', () => {
     );
     const imf = parsed.value.providers.find((entry) => entry.id === 'imf');
     assert.equal(imf?.config, 'no-endpoint');
+    const configOf = (id: string): string | undefined =>
+      parsed.value.providers.find((entry) => entry.id === id)?.config;
+    assert.equal(configOf('showmytrades'), 'ready', 'the primary calendar needs no key');
+    assert.equal(configOf('xoomar'), 'ready', 'the fallback calendar works without a key');
+    assert.equal(configOf('arib'), 'license-gated', 'AriB is never reported as connected');
+    assert.equal(configOf('financecalendar'), 'env-not-connected');
+    assert.equal(
+      parsed.value.providers.find((entry) => entry.id === 'financecalendar')?.role,
+      'optional',
+    );
   });
 
   it('makes no provider request unless a check is asked for', async () => {
