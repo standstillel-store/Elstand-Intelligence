@@ -139,6 +139,19 @@ A fallback exists to cover an outage of the same kind of data, and nothing else
 - Frankfurter's daily reference rates are reference data. They are never offered as a quote or a
   candle, in any state.
 
+**The economic calendar** has its own ordered fallback (`loadCalendar` in
+`server/feeds-service.ts`): ShowMyTrades, then XOOMAR, then Finance Calendar when (and only when) its
+key is set. The first source that gives a current, **validated** answer wins; a source is asked only
+when the ones before it did not answer, so a refresh costs one request when the primary is healthy.
+An HTTP 200 is not an answer: a body that is not a calendar, or an event that fails validation, is
+a failure of that source (or an excluded event with its reason), never repaired. The answer names the
+source that gave it (`EVENT DATA: …`) and, for a fallback, each source passed over and why. A copy
+kept from an earlier answer is not an answer: a source that can still be asked is preferred to it,
+and it is shown only when nobody answers, labelled CACHED or STALE. When nothing is left the calendar
+is UNAVAILABLE with each source's reason, and no event is made up. AriB Research is never asked (it
+is license-gated), and a calendar figure a source leaves empty is `null`: neither zero, nor an
+estimate, nor a reason to hide the event.
+
 ## What is checked, and where
 
 **Twelve Data adapter** (`server/twelvedata.ts`). Vendor numbers arrive as strings and are parsed
@@ -153,7 +166,7 @@ honored whether or not the HTTP status agrees. Text from the provider that is sh
 control characters removed and any echo of the key redacted. The key travels in the `Authorization`
 header, never in the URL, and redirects are refused so the header cannot be forwarded elsewhere.
 
-**Every other adapter** (`server/alphavantage.ts`, `fred.ts`, `financecalendar.ts`, `marketaux.ts`,
+**Every other adapter** (`server/alphavantage.ts`, `fred.ts`, `showmytrades.ts`, `xoomar.ts`, `financecalendar.ts`, `marketaux.ts`,
 `frankfurter.ts`, `worldbank.ts`, `bls.ts`, `bea.ts`) goes through one HTTP helper
 (`server/provider-http.ts`): https only, to the host of the configured address, with no credential in
 the address; redirects refused, so a credential cannot be forwarded to another host; a timeout and a
@@ -216,8 +229,10 @@ says which input and why. Nothing is estimated to fill a gap.
 - **One-month price change**: two daily closes about 30 days apart, close to close, with the basis
   stated (the pair, the days and the dates). A base bar further back than 37 days is not "one month
   ago", and the change is not drawn.
-- **Event surprise**: the actual figure minus the consensus, both as the calendar supplied them, and
-  only when both are numbers. Otherwise there is no surprise.
+- **Event surprise**: the actual figure minus the forecast, both as the calendar supplied them, and
+  only when both are plain numbers in the same written unit (`3.1%` and `2.9%`, never `3.1%` and
+  `2.9`). Otherwise there is no surprise, and the screen says SURPRISE UNAVAILABLE with the reason.
+  XOOMAR publishes no forecast, so nothing read from it has one.
 - **The macro bubbles** are built from those, for the currencies that have a current policy-rate and
   consumer-price series. A currency without them is listed as omitted, with the reason.
 
@@ -279,11 +294,14 @@ integration works.**
   deployment (2026-11-10 and 2026-11-11): Twelve Data (authentication, quotes for EUR/USD and
   XAU/USD, hourly candles for EUR/USD) and the three that need no key, Frankfurter, the World Bank
   and the BLS (its keyless version 1). The values were not compared against the providers' own
-  sites. Five have **not** been run against a live API: Alpha Vantage, FRED, Marketaux and the BEA
-  need a key that was not available when this was written, and so does Finance Calendar, which has
-  no anonymous access (its keyless request, sent before its reference was read again, was refused
-  with HTTP 401). Their adapters are written from the providers' published documentation and tested
-  against the response shapes they document. The IMF has no endpoint. The status of each provider is
+  sites. Four have **not** been run against a live API: Alpha Vantage, FRED, Marketaux and the BEA
+  need a key that was not available when this was written. The optional Finance Calendar needs a
+  paid key (its keyless request was refused with HTTP 401), and nothing depends on it any more. The
+  two free economic-calendar sources, ShowMyTrades and XOOMAR, are written from the providers'
+  published documentation and tested against the response shapes they document; the record of any
+  live check is in [ENVIRONMENT.md](ENVIRONMENT.md#showmytrades). Their adapters are written from
+  the providers' documentation and tested against the response shapes they document. The IMF has
+  no endpoint. The status of each provider is
   in [ENVIRONMENT.md](ENVIRONMENT.md#providers).
 - **Free-tier limits** are the ones each provider's documentation states. The ones that could not be
   confirmed against a live account are marked as such there. Elstand's budgets are set below them.

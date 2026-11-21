@@ -16,7 +16,12 @@ import { screenCalendar } from '../../data/macro-validate.js';
 import type { CalendarEvent, FeedResult } from '../../data/macro.js';
 import { createScope, h, replaceContent, svg, type View } from '../dom.js';
 import { createPanel, notice } from '../parts.js';
-import { eventDataLine, surpriseUnavailableText, timingParts } from './calendar-words.js';
+import {
+  eventDataLine,
+  surpriseUnavailableText,
+  timingCaveat,
+  timingParts,
+} from './calendar-words.js';
 import {
   attributionLine,
   failedBlock,
@@ -149,6 +154,9 @@ function eventRow(event: CalendarEvent, now: number): Row {
           h('span', {
             text: event.impact === null ? 'NOT RATED' : event.impact.level.toUpperCase(),
           }),
+          timingCaveat(event) === null
+            ? null
+            : h('span', { class: 'wave__caveat', text: timingCaveat(event) ?? '' }),
         ),
       ),
     ),

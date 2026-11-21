@@ -36,6 +36,7 @@ specifiers to `.ts` files.
 | Server: handlers, status, caching, secrets never in a response, the Twelve Data adapter                                                                                          | `server-handlers.test.ts`, `server-twelvedata.test.ts`                                                                                                                             |
 | Providers: request budgets, retry, caching, the shared HTTP helper, the registry, cache policy, and every adapter against the response shapes it documents                       | `provider-framework.test.ts`, `provider-registry.test.ts`, `provider-adapters.test.ts`                                                                                             |
 | Service layer: failure wording, fallback rules, derived-data states, the capability endpoints and the provider page                                                              | `service-layer.test.ts`, `forex-service.test.ts`, `macro-service.test.ts`, `capability-handlers.test.ts`                                                                           |
+| Economic calendar sources: each failure a provider can show, the ETag/304 path, the ordered fallback, AriB never asked, a kept copy never live, nothing fake in product code     | `calendar-resilience.test.ts`, `capability-handlers.test.ts` (the endpoint)                                                                                                        |
 | Application state: connection classification, feeds, routing, polling                                                                                                            | `connection.test.ts`, `feeds.test.ts`, `router-polling.test.ts`                                                                                                                    |
 | Chart: model, geometry, rendering against a recording canvas                                                                                                                     | `chart-model.test.ts`, `chart-geometry.test.ts`, `chart-renderer.test.ts`                                                                                                          |
 | Depth arithmetic and formatting                                                                                                                                                  | `depth-format.test.ts`                                                                                                                                                             |
@@ -71,7 +72,7 @@ Chromium, one test file at a time. Run `npm run build` first if you run a file d
   a Retry, a provider that rejects the key, staleness and a closed market, and layout from desktop
   to phone.
 - `providers.test.ts` opens the provider status page with no environment and with Twelve Data
-  configured against the stand-in vendor: the ten providers by name, configuration shown by
+  configured against the stand-in vendor: the thirteen providers by name, configuration shown by
   variable name only, a variable that exists shown as CONFIGURED — NOT VERIFIED until a real request
   has been answered, a check that makes exactly one request, IMF shown as UNAVAILABLE, and no
   credential anywhere in the page.
@@ -108,9 +109,13 @@ network do not prove that a live API integration works.**
   their live APIs from the production deployment, by hand, following the first-connection checklist
   in [ENVIRONMENT.md](ENVIRONMENT.md#first-connection-checklist). Every other adapter is verified
   only against the response shapes its provider documents, through a stand-in. Alpha Vantage, FRED,
-  Marketaux, the BEA and Finance Calendar need a key that was not available when they were written;
-  Finance Calendar has no anonymous access, and a keyless request to it was refused with HTTP 401 on
-  the production deployment. Each provider's status is in [ENVIRONMENT.md](ENVIRONMENT.md#providers).
+  Marketaux and the BEA need a key that was not available when they were written. The optional
+  Finance Calendar has no anonymous access (a keyless request to it was refused with HTTP 401 on
+  the production deployment) and nothing depends on it. The two free calendar sources, ShowMyTrades
+  and XOOMAR, are tested through stand-ins in the shape each documents, including their failures
+  (`tests/unit/calendar-resilience.test.ts`); the router's fallback is proved by making the primary
+  fail in tests, never by calling the fallback in production. Each provider's status, and the
+  record of any live check, is in [ENVIRONMENT.md](ENVIRONMENT.md#providers).
 - **Provider accounting.** The request budgets are Elstand's own counts, tested against a clock. They
   are not compared with a provider's counter, and each server instance keeps its own.
 - **Vercel.** The static build, the headers and the handlers are tested locally through one shared

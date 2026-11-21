@@ -81,3 +81,14 @@ export function timingParts(event: CalendarEvent): [string, string][] {
   }
   return parts;
 }
+
+/**
+ * Words for an event whose stated time its provider does not stand behind: the time is tentative,
+ * or the provider's own sources disagree about it. The wave is still drawn from the stated time,
+ * because that is the only time there is, but it never looks surer than the provider said.
+ */
+export function timingCaveat(event: CalendarEvent): string | null {
+  if (event.status === 'estimated') return 'TIME ESTIMATED';
+  if (event.confidence === 'sources_disagree') return 'TIME DISPUTED';
+  return null;
+}
