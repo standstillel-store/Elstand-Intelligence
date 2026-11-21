@@ -1,5 +1,12 @@
 import type { CalendarEvent, EventSurprise } from '../src/data/macro.js';
+import { ApiFailure } from './errors.js';
 import { cleanLabel } from './parse.js';
+import {
+  callProvider,
+  type HttpDeps,
+  type ProviderCall,
+  type ProviderResponse,
+} from './provider-http.js';
 
 /**
  * What every economic-calendar adapter hands back, and the few helpers they share.
@@ -114,4 +121,26 @@ export function uniqueSorted(events: readonly CalendarEvent[]): CalendarEvent[] 
 /** The same events, stamped as retrieved at `retrievedAt` (a `304` confirms them again). */
 export function restamped(events: readonly CalendarEvent[], retrievedAt: number): CalendarEvent[] {
   return events.map((event) => ({ ...event, source: { ...event.source, retrievedAt } }));
+}
+
+/**
+ * A request that carries no credential. When such a request is refused with 401 or 403, the answer
+ * must not say a credential was rejected (there was none): it is the provider refusing the
+ * request, which is an ERROR of that provider and nothing to do with configuration.
+ */
+export async function callWithoutCredential(
+  http: HttpDeps,
+  call: ProviderCall,
+): Promise<ProviderResponse> {
+  try {
+    return await callProvider(http, call);
+  } catch (failure) {
+    if (failure instanceof ApiFailure && failure.code === 'provider_auth') {
+      throw new ApiFailure(
+        'provider_error',
+        `${call.label} refused the request without a credential. It needs none, so no key is missing or wrong; the provider itself declined.`,
+      );
+    }
+    throw failure;
+  }
 }

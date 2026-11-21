@@ -7,6 +7,7 @@ import type {
 } from '../src/data/macro.js';
 import {
   NO_QUOTA,
+  callWithoutCredential,
   figureText,
   restamped,
   surpriseBetween,
@@ -26,7 +27,7 @@ import {
   parseZonedInstant,
   safeHttpsUrl,
 } from './parse.js';
-import { callProvider, isEntityTag, type HttpDeps } from './provider-http.js';
+import { isEntityTag, type HttpDeps } from './provider-http.js';
 import type { ValidatorStore } from './provider-runtime.js';
 
 /**
@@ -77,7 +78,17 @@ export const SHOWMYTRADES_ATTRIBUTION: CalendarAttribution = {
 export const SHOWMYTRADES_IMPACT_SCHEME = 'ShowMyTrades impact rating';
 
 /** The currencies the provider documents. */
-const CURRENCIES: readonly string[] = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD', 'CHF', 'CNY'];
+const CURRENCIES: readonly string[] = [
+  'USD',
+  'EUR',
+  'GBP',
+  'JPY',
+  'AUD',
+  'NZD',
+  'CAD',
+  'CHF',
+  'CNY',
+];
 
 const IMPACTS: Readonly<Record<string, ImpactLevel>> = {
   high: 'high',
@@ -191,7 +202,10 @@ function parseEvent(row: unknown, index: number, retrievedAt: number): EventPars
   if (confidenceText !== '') {
     confidence = CONFIDENCES.find((known) => known === confidenceText);
     if (confidence === undefined) {
-      return exclude(eventId, `its confidence (${confidenceText}) is not one the provider documents`);
+      return exclude(
+        eventId,
+        `its confidence (${confidenceText}) is not one the provider documents`,
+      );
     }
   }
 
@@ -238,8 +252,7 @@ function attributionOf(body: Readonly<Record<string, unknown>>): CalendarAttribu
   const url = safeHttpsUrl(raw['url']);
   const ownSite = url !== null && new URL(url).hostname === SHOWMYTRADES_HOST;
   return {
-    name:
-      text !== null && /showmytrades/i.test(text) ? text : SHOWMYTRADES_ATTRIBUTION.name,
+    name: text !== null && /showmytrades/i.test(text) ? text : SHOWMYTRADES_ATTRIBUTION.name,
     url: ownSite ? url : SHOWMYTRADES_ATTRIBUTION.url,
   };
 }
@@ -294,7 +307,7 @@ export async function fetchShowMyTrades(
   }
   const key = `showmytrades:${days}`;
   const held = validators?.get<CalendarFetch>(key);
-  const response = await callProvider(http, {
+  const response = await callWithoutCredential(http, {
     label: SHOWMYTRADES_LABEL,
     baseUrl: config.baseUrl,
     path: SHOWMYTRADES_ENDPOINT,

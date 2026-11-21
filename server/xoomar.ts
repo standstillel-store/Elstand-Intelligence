@@ -1,6 +1,7 @@
 import type { CalendarEvent, ImpactLevel } from '../src/data/macro.js';
 import {
   NO_QUOTA,
+  callWithoutCredential,
   figureText,
   restamped,
   surpriseBetween,
@@ -216,7 +217,8 @@ export async function fetchXoomar(
   const to = formatIsoDate(window.toMs);
   const key = `xoomar:${from}:${to}`;
   const held = validators?.get<CalendarFetch>(key);
-  const response = await callProvider(http, {
+  const send = config.apiKey === null ? callWithoutCredential : callProvider;
+  const response = await send(http, {
     label: XOOMAR_LABEL,
     baseUrl: config.baseUrl,
     path: 'calendar',
