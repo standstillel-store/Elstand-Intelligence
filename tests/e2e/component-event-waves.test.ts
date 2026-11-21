@@ -165,10 +165,10 @@ describe('Surface VI: waves from a connected calendar', () => {
       assert.match(given, /Previous\s*2\.0%/);
       assert.match(given, /Source\s*Fixture calendar/);
       assert.match(given, /Retrieved\s*2026-01-06 11:58 UTC/);
-      assert.doesNotMatch(
+      assert.match(
         given,
-        /Surprise/,
-        'no surprise is shown without two figures to compute it',
+        /Surprise\s*\+0\.2 % · actual minus forecast, both as published by the fixture calendar · CALCULATED by Elstand/,
+        'a surprise is shown when the calendar supplied both figures in one unit, and says who calculated it',
       );
       assert.doesNotMatch(
         given,
@@ -225,6 +225,77 @@ describe('Surface VI: waves from a connected calendar', () => {
     await withWaves({ calendar: 'available' }, async ({ page }) => {
       await page.waitForSelector(`${PANEL} details[data-event-id]`);
       assert.match(await text(page, `${PANEL} .panel__meta`), /retrieved 2026-01-06 11:59 UTC/);
+    });
+  });
+});
+
+describe('Surface VI: where its events come from', () => {
+  it('names the source that answered, with its state and retrieval time, and no fallback notice', async () => {
+    await withWaves({ calendar: 'available', calendarOrigin: 'showmytrades' }, async ({ page }) => {
+      await page.waitForSelector(`${PANEL} details[data-event-id]`);
+      const line = await text(page, `${PANEL} [data-event-data="showmytrades"]`);
+      assert.match(line, /^EVENT DATA: SHOWMYTRADES · DELAYED · retrieved 2026-01-06 11:59 UTC$/);
+      assert.doesNotMatch(await text(page, PANEL), /FALLBACK SOURCE/);
+      assert.doesNotMatch(
+        await text(page, PANEL),
+        /LIVE/,
+        'an answer that merely arrived is not live',
+      );
+    });
+  });
+
+  it('says the fallback answered, which source it replaced and why, and what the fallback lacks', async () => {
+    await withWaves(
+      { calendar: 'available', calendarOrigin: 'xoomar-fallback' },
+      async ({ page }) => {
+        await page.waitForSelector(`${PANEL} details[data-event-id]`);
+        const line = await text(page, `${PANEL} [data-event-data="xoomar"]`);
+        assert.match(line, /^EVENT DATA: XOOMAR · DELAYED · retrieved 2026-01-06 11:59 UTC$/);
+        const all = await text(page, PANEL);
+        assert.match(all, /FALLBACK SOURCE/);
+        assert.match(all, /XOOMAR answered instead of the primary source\./);
+        assert.match(all, /ShowMyTrades \(ERROR\): ShowMyTrades failed \(HTTP 503\)\./);
+        assert.match(all, /XOOMAR lists U\.S\. agency releases only and publishes no forecast\./);
+      },
+    );
+  });
+
+  it('says every source failed, with each reason, and is not ENV NOT CONNECTION', async () => {
+    await withWaves(
+      { calendar: 'unavailable', calendarOrigin: 'nobody-answered' },
+      async ({ page }) => {
+        await page.waitForSelector(
+          `${PANEL} .env-block, ${PANEL} .macro__unavailable, ${PANEL} .notice`,
+        );
+        const all = await text(page, PANEL);
+        assert.match(all, /No economic calendar source answered\./);
+        assert.match(all, /ShowMyTrades \(ERROR\)/);
+        assert.match(all, /XOOMAR \(ERROR\)/);
+        assert.match(all, /Surface VI event waves are disabled\./);
+        assert.doesNotMatch(all, /ENV NOT CONNECTED|ENV NOT CONNECTION/);
+        assert.equal(await page.locator(`${PANEL} details[data-event-id]`).count(), 0);
+        assert.equal(await page.locator('#waves-all').isDisabled(), true);
+      },
+    );
+  });
+
+  it('says why an event has no surprise instead of leaving a gap or showing a zero', async () => {
+    await withWaves({ calendar: 'available' }, async ({ page }) => {
+      await page.waitForSelector(`${PANEL} details[data-event-id]`);
+      await page.locator(`${row('ev-4')} summary`).click();
+      const given = await text(page, `${row('ev-4')} dl`);
+      assert.match(
+        given,
+        /Surprise\s*SURPRISE UNAVAILABLE — the event has no actual yet\. A surprise is actual minus forecast and is calculated only when both are present and in the same unit\./,
+      );
+      assert.doesNotMatch(given, /Surprise\s*[+-]?0\b/);
+
+      await page.locator('#waves-all').check();
+      await page.locator(`${row('ev-3')} summary`).click();
+      assert.match(
+        await text(page, `${row('ev-3')} dl`),
+        /SURPRISE UNAVAILABLE — the source has published neither an actual nor a forecast/,
+      );
     });
   });
 });

@@ -100,13 +100,6 @@ const ENV_REGIONS: readonly {
     note: /^ENV NOT CONNECTED — FRED_API_KEY is missing\. Macro observations from FRED are unavailable\.$/,
   },
   {
-    name: 'economic calendar',
-    hash: '#/macro/news-calendar',
-    scope: '#calendar-panel',
-    detail: 'A calendar provider is not connected.',
-    note: /^ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing\. Economic calendar events from Finance Calendar are unavailable\.$/,
-  },
-  {
     name: 'news',
     hash: '#/macro/news-calendar',
     scope: '#news-panel',
@@ -493,23 +486,22 @@ describe('no env: every data region says ENV NOT CONNECTION', () => {
     });
   }
 
-  it('economic calendar: the provider has no anonymous access, so with no key nothing is asked and no event is listed', async () => {
+  it('economic calendar: needs no key, so with no environment it is asked, and never says ENV NOT CONNECTION', async () => {
     await withPage('#/macro/news-calendar', async ({ page, requested }) => {
       const panel = page.locator('#calendar-panel');
-      await panel.locator('.env-block__label').waitFor();
-      assert.equal(await panel.locator('.env-block').count(), 1);
-      assert.equal(await panel.locator('article').count(), 0, 'no event is listed');
-      assert.equal(
-        await panel.getByRole('button', { name: 'Retry' }).count(),
-        0,
-        'a retry cannot supply a missing key',
-      );
+      // The sources are asked; the test server reaches none of them, so each says why it failed.
+      await panel.getByText('No economic calendar source answered.').waitFor();
+      assert.equal(await panel.locator('.env-block').count(), 0, 'no ENV NOT CONNECTION block');
+      assert.equal(await panel.locator('article').count(), 0, 'no event is listed or made up');
       const shown = await text(page, '#calendar-panel');
-      assert.match(
+      assert.match(shown, /ShowMyTrades \(ERROR\): Could not reach ShowMyTrades\./);
+      assert.match(shown, /XOOMAR \(ERROR\): Could not reach XOOMAR\./);
+      assert.doesNotMatch(shown, /ENV NOT CONNECTED|ENV NOT CONNECTION/);
+      assert.doesNotMatch(
         shown,
-        /ENV NOT CONNECTED — FINANCE_CALENDAR_API_KEY is missing\. Economic calendar events from Finance Calendar are unavailable\./,
+        /FINANCE_CALENDAR_API_KEY/,
+        'the optional paid source is not blamed',
       );
-      assert.doesNotMatch(shown, /ERROR/, 'a missing key is not reported as a failed request');
       assert.ok(
         requested.every((url) => url.startsWith(app.url)),
         'every request stayed on this origin; no provider was contacted from the browser',
@@ -1340,6 +1332,7 @@ describe('no env: the server', () => {
       body.providers.map((provider) => `${provider.id}:${provider.config}`).sort(),
       [
         'alphavantage:env-not-connected',
+        'arib:license-gated',
         'bea:env-not-connected',
         'bls:ready',
         'financecalendar:env-not-connected',
@@ -1347,10 +1340,12 @@ describe('no env: the server', () => {
         'fred:env-not-connected',
         'imf:no-endpoint',
         'marketaux:env-not-connected',
+        'showmytrades:ready',
         'twelvedata:env-not-connected',
         'worldbank:ready',
+        'xoomar:ready',
       ],
-      'ten providers; ready means only that a request may be sent, never that one succeeded',
+      'thirteen providers; ready means only that a request may be sent, never that one succeeded',
     );
     assert.ok(
       body.providers.every((provider) => provider.keyed === false),

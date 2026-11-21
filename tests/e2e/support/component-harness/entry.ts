@@ -9,7 +9,12 @@ import { mountApp, type MountedApp } from '../../../../src/app/app.js';
 import type { Connection, ConnectionState } from '../../../../src/app/connection.js';
 import { createStore } from '../../../../src/core/store.js';
 import type { BubbleProvider, BubbleResult } from '../../../../src/data/macro-bubbles.js';
-import type { FeedResult, MacroFeedProvider } from '../../../../src/data/macro.js';
+import type {
+  CalendarEvent,
+  FeedOrigin,
+  FeedResult,
+  MacroFeedProvider,
+} from '../../../../src/data/macro.js';
 import type { VolSurfaceProvider, VolSurfaceResult } from '../../../../src/data/options.js';
 import type { MarketDataProvider } from '../../../../src/data/provider.js';
 import { createMarketDataService } from '../../../../src/data/service.js';
@@ -24,7 +29,14 @@ import {
   fixtureProvider,
   fixtureSurfaceLarge,
 } from '../../../support/fixtures.js';
-import type { DepthVariant, EngineVariant, FeedVariant, HarnessApi, HarnessSpec } from './spec.js';
+import type {
+  CalendarOrigin,
+  DepthVariant,
+  EngineVariant,
+  FeedVariant,
+  HarnessApi,
+  HarnessSpec,
+} from './spec.js';
 
 declare global {
   interface Window {
@@ -139,6 +151,89 @@ function feed<T>(variant: FeedVariant | undefined, items: readonly T[]): Promise
   }
 }
 
+/**
+ * What the server attaches to a calendar answer, for the three cases the interface words
+ * differently. The sentences are the ones the server writes; the data behind them is fixtures.
+ */
+function calendarOriginFor(which: CalendarOrigin): FeedOrigin {
+  const retrievedAt = FIXTURE_NOW - 30_000;
+  const base = {
+    capability: 'economic-calendar',
+    dataAsOf: null,
+    cache: 'fresh',
+  } as const;
+  switch (which) {
+    case 'showmytrades':
+      return {
+        provenance: {
+          ...base,
+          provider: 'showmytrades',
+          providerLabel: 'ShowMyTrades',
+          endpoint: 'calendar/v1',
+          state: 'DELAYED',
+          retrievedAt,
+          fallback: null,
+          message: null,
+        },
+        attribution: {
+          name: 'Economic calendar by ShowMyTrades',
+          url: 'https://showmytrades.com/tools/economic-calendar',
+        },
+        notes: [],
+      };
+    case 'xoomar-fallback':
+      return {
+        provenance: {
+          ...base,
+          provider: 'xoomar',
+          providerLabel: 'XOOMAR',
+          endpoint: 'calendar',
+          state: 'DELAYED',
+          retrievedAt,
+          fallback: {
+            from: 'showmytrades',
+            reason: 'ShowMyTrades (ERROR): ShowMyTrades failed (HTTP 503).',
+          },
+          message: null,
+        },
+        attribution: { name: 'XOOMAR', url: 'https://xoomar.com/markets' },
+        notes: ['XOOMAR lists U.S. agency releases only and publishes no forecast.'],
+      };
+    default:
+      return {
+        provenance: {
+          ...base,
+          provider: 'showmytrades',
+          providerLabel: 'ShowMyTrades',
+          endpoint: 'calendar/v1',
+          state: 'UNAVAILABLE',
+          retrievedAt: null,
+          fallback: null,
+          message:
+            'UNAVAILABLE — No economic calendar source answered. ShowMyTrades (ERROR): ShowMyTrades failed (HTTP 503). XOOMAR (ERROR): XOOMAR failed (HTTP 503).',
+        },
+        attribution: null,
+        notes: [],
+      };
+  }
+}
+
+async function calendarFeed(spec: HarnessSpec): Promise<FeedResult<CalendarEvent>> {
+  if (spec.calendarOrigin === 'nobody-answered') {
+    const origin = calendarOriginFor('nobody-answered');
+    return {
+      status: 'unavailable',
+      // As the application does: the reason is the provenance's own message.
+      reason: origin.provenance.message ?? origin.provenance.state,
+      origin,
+    };
+  }
+  const result = await feed(spec.calendar, fixtureCalendar());
+  return spec.calendarOrigin === undefined
+    ? result
+    : { ...result, origin: calendarOriginFor(spec.calendarOrigin) };
+}
+
 function surfaceProvider(spec: HarnessSpec): VolSurfaceProvider {
   return {
     label: 'fixture surface',
@@ -225,7 +320,7 @@ function macroFeed(spec: HarnessSpec): MacroFeedProvider {
     label: 'fixture feed',
     getCalendar: (range) => {
       calendarRanges.push({ fromMs: range.fromMs, toMs: range.toMs });
-      return feed(spec.calendar, fixtureCalendar());
+      return calendarFeed(spec);
     },
     getNews: () => feed(spec.news, fixtureNews()),
   };
