@@ -145,6 +145,7 @@ The dependency order is one-way and enforced by `npm run lint:policy`; see
 | [docs/MACRO-BUBBLES.md](docs/MACRO-BUBBLES.md)   | The bubble chart encoding, to the formula, and where its three values come from.                                                                                            |
 | [docs/DESIGN.md](docs/DESIGN.md)                 | Palette, where the neon green may be used, measured contrast, density and accessibility rules.                                                                              |
 | [docs/TESTING.md](docs/TESTING.md)               | Test layers, why fixtures cannot reach the product, how to run each suite.                                                                                                  |
+| [docs/CLAUDE_HANDOFF.md](docs/CLAUDE_HANDOFF.md) | A verified continuation brief for the next working session: state, providers, production, known issues, roadmap.                                                            |
 
 ## Known limitations
 
